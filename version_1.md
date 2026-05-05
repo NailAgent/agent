@@ -7,17 +7,17 @@
 ## 2. Directory Structure
 ```
 agent/
-├── graph/               # LangGraph 오케스트레이션 레이어
-│   ├── state.py         # 공유 상태(Shared State) 정의
-│   ├── nodes.py         # 워크플로우 각 단계의 실행 노드
-│   ├── router.py        # 노드 간 이동 경로를 결정하는 로직
-│   └── workflow.py      # 전체 그래프(StateGraph) 조립 및 정의
-├── agents/              # 지능형 에이전트 레이어 (LLM 기반)
-│   ├── schema.py        # 데이터 구조 정의 (Pydantic 모델)
-│   └── intake_agent.py  # 입력 분석 및 정보 추출 에이전트
-├── tools/               # 결정론적 도구 및 비즈니스 로직 레이어
-│   └── policy_engine.py # 영업 정책 및 규칙 검증 엔진
-└── tests/               # 단위 및 통합 테스트 스크립트
+├── graph/               # LangGraph Orchestration Layer
+│   ├── state.py         # Shared State Definition
+│   ├── nodes.py         # Workflow Step Execution Nodes
+│   ├── router.py        # Node Transition Routing Logic
+│   └── workflow.py      # Complete Graph Assembly
+├── agents/              # Intelligent Agent Layer (LLM-based)
+│   ├── schema.py        # Data Structure Definitions (Pydantic Models)
+│   └── intake_agent.py  # Input Analysis and Information Extraction Agent
+├── tools/               # Deterministic Tools and Business Logic Layer
+│   └── policy_engine.py # Business Policy and Rule Validation Engine
+└── tests/               # Unit and Integration Test Scripts
 ```
 
 ## 3. Core Component Analysis
@@ -45,17 +45,17 @@ agent/
 ## 5. Implementation Details
 
 ### 5.1. API Management
-- **.env**: API Key 등 민감 정보를 환경 변수로 관리함.
-- **dotenv**: `load_dotenv()`를 호출하여 파이썬 런타임에 환경 변수를 주입함.
+- **.env**: API Key 등 민감 정보를 환경 변수로 관리
+- **dotenv**: `load_dotenv()`를 호출하여 파이썬 런타임에 환경 변수를 주입
 
 ### 5.2. Graph Orchestration (`nodes.py`, `workflow.py`)
-- **Nodes**: 각 단계별 독립적인 실행 단위.
-  - `intake_node`: LLM을 통한 입력 분석.
-  - `booking_node`: Policy Engine 연동 및 예약 가능 여부 판정.
-  - `response_node`: 최종 메시지 작성.
-- **Edges & Router**: 노드 간의 이동 경로 및 조건부 분기 정의.
-  - 정보 부족 시 `response_node`로 직행하여 질문 투척.
-  - 정보 충족 시 `booking_node`로 이동하여 검증 진행.
+- **Nodes**: 각 단계별 독립적인 실행 단위
+  - `intake_node`: LLM을 통한 입력 분석
+  - `booking_node`: Policy Engine 연동 및 예약 가능 여부 판정
+  - `response_node`: 최종 메시지 작성
+- **Edges & Router**: 노드 간의 이동 경로 및 조건부 분기 정의
+  - 정보 부족 시 `response_node`로 직행하여 질문 투척
+  - 정보 충족 시 `booking_node`로 이동하여 검증 진행
 
 ## 6. Visual Workflow (Mermaid)
 

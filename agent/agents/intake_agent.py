@@ -1,6 +1,10 @@
 from typing import List
+from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
+
+# 환경 변수 로드
+load_dotenv()
 from agent.agents.schema import IntakeResult, BookingSlots
 
 class IntakeAgent:
@@ -14,7 +18,7 @@ class IntakeAgent:
             ("system", """You are an expert booking assistant for a nail shop. 
 Your goal is to analyze the customer's message and extract relevant reservation information.
 
-Current Date: 2024-05-05 (Monday)
+Current Date: 2026-05-05 (Monday)
 
 INSTRUCTIONS:
 1. Identify the user's intent (e.g., booking, inquiry, change, cancel).
@@ -26,7 +30,7 @@ INSTRUCTIONS:
    - reserve_time: Target time in HH:MM format.
    - service_code: One of [GEL_BASIC, GEL_NAIL, PEDICURE].
    - past_visit: True if they indicate they have visited before, False otherwise.
-3. Determine if any REQUIRED fields are missing for a 'booking' intent. Required fields: name, phone_num, reserve_date, reserve_time, service_code.
+3. Determine if any REQUIRED fields are missing for a 'booking' intent. Required fields: name, phone_num, reserve_date, reserve_time, service_code, past_visit.
 4. If fields are missing, set `need_followup` to True and write a polite `followup_question` in Korean.
 5. If the user provides a filled-out form, parse it carefully. If they use natural language, extract what you can.
 

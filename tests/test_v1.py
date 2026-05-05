@@ -2,55 +2,86 @@ import sys
 import os
 from dotenv import load_dotenv
 
-# 프로젝트 루트 경로 추가 (모듈 임포트용)
+# .env 로드
+load_dotenv()
+
+# 프로젝트 루트 경로 추가
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agent.graph.workflow import app
 from agent.agents.schema import BookingSlots
 
-# .env 로드
-load_dotenv()
-
-def run_test(scenario_name: str, user_input: str):
-    print(f"\n{'='*50}")
-    print(f"🎬 TEST SCENARIO: {scenario_name}")
-    print(f"💬 INPUT: {user_input}")
-    print(f"{'='*50}")
+def simulate_conversation(scenario_name: str, turns: list):
+    """simulate conversation"""
+    print(f"\n{'='*60}")
+    print(f"[SCENARIO]: {scenario_name}")
+    print(f"{'='*60}")
     
-    # 그래프 실행 초기 상태 설정
-    initial_state = {
-        "user_input": user_input,
+    # 초기 상태 설정
+    state = {
+        "user_input": "",
         "history": [],
-        "slots": BookingSlots(), # 빈 슬롯으로 시작
-        "missing_fields": []
+        "slots": BookingSlots(),
+        "missing_fields": [],
+        "response_draft": ""
     }
     
-    # 그래프 실행
-    final_state = app.invoke(initial_state)
-    
-    print(f"\n[Output Analysis]")
-    print(f"1. Detected Intent: {final_state.get('intent')}")
-    print(f"2. Slots Found: {final_state.get('slots')}")
-    print(f"3. Next Action: {final_state.get('next_action')}")
-    print(f"4. Final Status: {final_state.get('booking_status', 'N/A')}")
-    print(f"\n[AGENT RESPONSE]:\n{final_state.get('response_draft')}")
-    print(f"{'='*50}\n")
+    for i, user_input in enumerate(turns):
+        print(f"\n[Turn {i+1}]")
+        print(f"[USER]: {user_input}")
+        
+        # update user input
+        state["user_input"] = user_input
+        
+        # excute graph
+        state = app.invoke(state)
+        
+        print(f"[AGENT]: \n{state['response_draft']}")
+        print(f"--- (Intent: {state.get('intent')}, Status: {state.get('booking_status', 'N/A')}) ---")
+
+    print(f"\n{'='*60}\n")
 
 if __name__ == "__main__":
-    # 시나리오 1: 정보가 완벽한 정상 예약 (화요일 예약 가정)
-    run_test(
-        "Happy Path (Full Info)", 
-        "김지수, 010-1234-5678, 내일(2024-05-07) 오후 3시에 젤네일 예약하고 싶어요. 제거는 없어요."
+    # Scenario 1: Standard booking flow (greeting -> request form -> submit form)
+    simulate_conversation(
+        "Standard Booking Flow",
+        [
+            "안녕하세요",                          # 1. 처음 들어옴 (환영 메시지 기대)
+            "예약 문의하고 싶어요!",               # 2. 의도 표현 (예약 양식/정책 안내 기대)
+            """
+            - *성함: 김지수
+            - *전화번호 (010-0000-0000): 010-1234-5678
+            - *젤제거 유무(O/X): O
+            - *예약 희망 날짜 (형식: 2026-04-12): 2026-05-07
+            - *예약 희망 시간 (형식: 18:00): 17:00
+            - *원하시는 시술 종류: 젤네일
+            - *과거 방문경험(O/X): X
+            """                                   # 3. 양식 제출 (예약 확정 안내 기대)
+        ]
+    )
+
+    # Scenario 2: Direct booking 
+    simulate_conversation(
+        "Direct Booking",
+        [
+            "내일 오후 3시 김지수 010-1111-2222 젤네일 예약요. 제거는 없어요. 처음 가요." 
+            # 한 번에 다 말하면 바로 예약 검증으로 가야 함
+        ]
     )
     
-    # 시나리오 2: 정보가 누락된 경우 (연락처 없음)
-    run_test(
-        "Missing Info (No Phone)", 
-        "내일 오후 3시에 젤네일 예약할게요. 김지수입니다."
-    )
-    
-    # 시나리오 3: 정책 위반 (월요일 휴무일 예약 - 2024-05-06은 월요일)
-    run_test(
-        "Policy Rejection (Monday)", 
-        "김지수, 010-1234-5678, 오늘(2024-05-06) 오후 5시에 젤네일 가능할까요?"
+    # Scenario 3: Policy Violation Case
+    simulate_conversation(
+        "Policy Violation Case",
+        [
+            "예약 문의",
+            """
+            - *성함: 이민호
+            - *전화번호: 010-9999-8888
+            - *젤제거 유무: X
+            - *예약 희망 날짜: 2024-05-06 (월요일)
+            - *예약 희망 시간: 14:00
+            - *원하시는 시술 종류: 젤네일
+            - *과거 방문경험: O
+            """
+        ]
     )
