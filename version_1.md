@@ -89,4 +89,18 @@ graph TD
 | **Booking** | 예약 확정/거절 | "예약 등록 여부 결정" | `booking_node` (State Update) |
 | **Response** | 자연어 응답 생성 | "고객 응답 흐름" | `response_node` (Message Drafting) |
 
+## 8. Backend Integration & Slot Calculation
+
+### 8.1. API Design
+- 백엔드로부터 해당 날짜의 **전체 영업시간** 및 **이미 예약된 슬롯 리스트**를 제공받아 에이전트가 직접 가용 시간을 계산함
+- Input: `date` (YYYY-MM-DD)
+- Output: `business_hours` (start, end), `booked_slots` (start, end, duration)
+
+### 8.2. Gap Finding Algorithm
+1. 하루의 영업시간을 1분 단위의 타임라인 배열로 생성
+2. 기존 예약된 시간대를 타임라인 상에서 '사용 중'으로 표시
+3. 고객이 요청한 시술의 소요 시간(Duration)만큼 연속된 빈 공간(0)을 찾음
+4. 예약 불가 시, 위 알고리즘을 통해 계산된 대체 시간대(상위 3개)를 고객에게 자동으로 제안함
+
+
 
