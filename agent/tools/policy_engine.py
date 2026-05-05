@@ -18,6 +18,8 @@ class PolicyEngine:
     @classmethod
     def validate_time(cls, date_str: str, time_str: str) -> dict:
         """Checks if the requested time is within opening hours and not on a closed day."""
+        if not date_str or not time_str:
+            return {"valid": False, "reason": "날짜와 시간이 입력되지 않았습니다."}
         try:
             req_date = datetime.strptime(date_str, "%Y-%m-%d")
             req_time = datetime.strptime(time_str, "%H:%M").time()
