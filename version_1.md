@@ -102,5 +102,183 @@ graph TD
 3. 고객이 요청한 시술의 소요 시간(Duration)만큼 연속된 빈 공간(0)을 찾음
 4. 예약 불가 시, 위 알고리즘을 통해 계산된 대체 시간대(상위 3개)를 고객에게 자동으로 제안함
 
+## 9. Backend Connection Points
+
+Version 1에서 agent가 실제로 백엔드와 만나는 지점은 두 곳입니다.
+
+### 9.1 예약 스케줄 조회
+- 목적: 특정 날짜의 영업시간과 이미 예약된 시간대를 가져오기
+- 요청: `GET /api/v1/bookings/schedule?date=YYYY-MM-DD`
+- 사용 위치: `booking_node`
+- 사용 이유:
+  - 고객이 요청한 시간과 기존 예약이 겹치는지 검사
+  - 대체 가능한 시간을 계산
+
+### 9.2 예약 생성
+- 목적: 예약이 가능하다고 판단되면 백엔드에 예약을 등록하기
+- 요청: `POST /api/v1/bookings`
+- 사용 위치: `booking_node`
+- 사용 이유:
+  - 예약 정보를 백엔드 DB에 저장
+  - 고객/대시보드가 나중에 같은 예약 데이터를 보게 하기
+
+### 9.3 샵 정보 조회
+- 목적: 예약금, 영업시간 안내 문구, 정책 문구를 가져오기
+- 요청: `GET /api/v1/shopinfo`
+- 사용 위치: `booking_node`
+- 사용 이유:
+  - 예약금 안내
+  - 고객에게 보여줄 고정 문구 구성
+
+---
+
+## 10. Actual Runtime Flow
+
+아래 순서대로 agent가 동작합니다.
+
+### Step 1. 고객 메시지 입력
+예:
+> "내일 오후 3시 김지수 010-1111-2222 젤네일 예약요. 제거는 없어요. 처음 가요."
+
+### Step 2. Intake Agent 실행
+`intake_agent.py`가 메시지를 읽고 다음을 추출합니다.
+- intent
+- name
+- phone_num
+- reserve_date
+- reserve_time
+- service_code
+- off_removal
+- past_visit
+
+### Step 3. 부족한 정보 확인
+필수 슬롯이 비어 있으면 바로 follow-up 질문을 생성합니다.
+- 이름이 없으면 이름만 묻기
+- 날짜/시간이 없으면 날짜와 시간을 묻기
+- 정보가 너무 적으면 예약 양식 전체를 안내하기
+
+### Step 4. Booking Node 실행
+필수 정보가 충분하면 `booking_node`로 이동합니다.
+
+이 단계에서 agent는 다음 순서를 따릅니다.
+1. `GET /api/v1/shopinfo`로 샵 설정을 조회
+2. `GET /api/v1/bookings/schedule?date=...`로 해당 날짜 예약 현황 조회
+3. `PolicyEngine`으로 영업시간/휴무일/예약 충돌 검사
+4. 예약 가능하면 `POST /api/v1/bookings`로 백엔드에 예약 생성
+5. 고객에게 입금 안내 메시지 반환
+
+### Step 5. Response Node 실행
+`response_node`는 최종 사용자에게 보여줄 문장을 정리합니다.
+- 인사말
+- 예약 양식 안내
+- 추가 질문
+- 예약 가능/불가 안내
+- 변경/취소/문의 fallback 문구
+
+---
+
+## 11. How to Run
+
+이 프로젝트는 `agent` 가상환경을 기준으로 실행하는 것을 권장합니다.
+
+### 11.1 Agent 테스트 실행
+```bash
+conda activate agent
+cd /home/sallysooo/Desktop/Nailgent
+python agent/tests/test_v1.py
+python agent/tests/test_v1_additional.py
+```
+
+### 11.2 Backend와 함께 실행하기
+백엔드가 로컬에서 실행 중이면 agent가 자동으로 그쪽을 호출합니다.
+
+권장 순서:
+1. 백엔드에서 MySQL과 Spring Boot를 실행
+2. agent 가상환경 활성화
+3. `BACKEND_BASE_URL`이 비어 있으면 기본값 `http://localhost:8080` 사용
+4. agent 테스트 또는 workflow 실행
+
+### 11.3 환경 변수
+주로 사용하는 환경 변수는 다음과 같습니다.
+
+| 변수 | 의미 | 예시 |
+|---|---|---|
+| `OPENAI_API_KEY` | LLM 사용 시 필요 | `sk-...` |
+| `INTAKE_AGENT_MODE` | `llm` 또는 `deterministic` | `llm` |
+| `BACKEND_BASE_URL` | 백엔드 API 주소 | `http://localhost:8080` |
+
+### 11.4 동작 원리
+- `OPENAI_API_KEY`가 있으면 Intake Agent가 LLM 기반 structured output을 사용합니다.
+- 키가 없거나 `INTAKE_AGENT_MODE`가 `deterministic`이면 안전한 로컬 파서를 사용합니다.
+- 백엔드가 실행 중이면 예약 검증과 예약 생성이 실제 API 호출로 연결됩니다.
+- 백엔드가 꺼져 있어도 local fallback 값으로 테스트는 계속 진행됩니다.
+
+---
+
+## 12. Booking Request Mapping
+
+agent가 가지고 있는 슬롯과 백엔드가 요구하는 예약 생성 요청은 다음처럼 연결됩니다.
+
+| Agent 슬롯 | Backend 필드 | 설명 |
+|---|---|---|
+| `name` | `name` | 예약자 성함 |
+| `phone_num` | `phone_num` | 전화번호 |
+| `reserve_date` | `reserve_date` | 예약 날짜 |
+| `reserve_time` | `reserve_time` | 시작-종료 시간 문자열 |
+| `service_code` | `service` | `GEL_NAIL -> 젤네일` 같은 정제값 |
+| `off_removal` | `off_removal` | 젤제거 여부 |
+| `estimated_duration_min` | `estimated_duration_min` | 시술 소요시간 |
+| `deposit_amount` | `deposit_amount` | 예약금 |
+| `designer` | `designer` | 담당 디자이너, 없으면 `사장님` |
+
+### 예시
+입력:
+```json
+{
+  "name": "김지수",
+  "phone_num": "010-1234-5678",
+  "reserve_date": "2026-05-07",
+  "reserve_time": "17:00",
+  "service_code": "GEL_NAIL",
+  "off_removal": true
+}
+```
+
+agent 내부 변환 후:
+```json
+{
+  "name": "김지수",
+  "phone_num": "010-1234-5678",
+  "reserve_date": "2026-05-07",
+  "reserve_time": "17:00-18:30",
+  "estimated_duration_min": 90,
+  "service": "젤네일",
+  "off_removal": true,
+  "deposit_amount": 5000,
+  "designer": null
+}
+```
+
+---
+
+## 13. Current Implementation Notes
+
+- `intake_agent.py`는 현재 booking intent에 대해 슬롯을 직접 추출할 수 있습니다.
+- `backend_client.py`는 백엔드가 살아 있으면 실제 API를 호출하고, 아니면 로컬 더미 값으로 이어집니다.
+- `booking_node`는 검증이 통과하면 실제 예약 생성까지 시도합니다.
+- `workflow.py`는 LangGraph를 직접 사용합니다.
+- `schema.py`는 Pydantic 모델을 사용합니다.
+
+---
+
+## 14. What Comes Next
+
+현재 V1에서 다음으로 자연스럽게 이어질 작업은 아래와 같습니다.
+
+1. change/cancel 전용 노드 추가
+2. payment 확인 노드 추가
+3. customer/detail/shopinfo 조회 API가 생기면 agent adapter에 연결
+4. owner review / exception routing 추가
+5. dashboard와 응답 메시지 포맷 정교화
 
 

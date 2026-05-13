@@ -1,4 +1,4 @@
-from datetime import datetime, time, timedelta
+from datetime import datetime, time
 
 class PolicyEngine:
     """Engine that deterministic business rules of nail shop"""
@@ -27,7 +27,14 @@ class PolicyEngine:
         return t.hour * 60 + t.minute
 
     @classmethod
-    def validate_reservation(cls, date_str: str, time_str: str, duration: int, booked_slots: list) -> dict:
+    def validate_reservation(
+        cls,
+        date_str: str,
+        time_str: str,
+        duration: int,
+        booked_slots: list,
+        business_hours: dict | None = None,
+    ) -> dict:
         """
         Validate the requested time overlaps with existing reservations and is within business hours
         """
@@ -45,10 +52,17 @@ class PolicyEngine:
                 return {"valid": False, "reason": "매주 월요일은 정기 휴무입니다."}
             
             # 2. 영업시간 확인
-            open_min = cls.time_to_minutes(cls.OPENING_HOUR)
-            close_min = cls.time_to_minutes(cls.CLOSING_HOUR)
+            if business_hours and business_hours.get("start") and business_hours.get("end"):
+                open_time = datetime.strptime(business_hours["start"], "%H:%M").time()
+                close_time = datetime.strptime(business_hours["end"], "%H:%M").time()
+            else:
+                open_time = cls.OPENING_HOUR
+                close_time = cls.CLOSING_HOUR
+
+            open_min = cls.time_to_minutes(open_time)
+            close_min = cls.time_to_minutes(close_time)
             if req_start_min < open_min or req_end_min > close_min:
-                return {"valid": False, "reason": f"영업시간({cls.OPENING_HOUR.strftime('%H:%M')}~{cls.CLOSING_HOUR.strftime('%H:%M')}) 외의 시간입니다."}
+                return {"valid": False, "reason": f"영업시간({open_time.strftime('%H:%M')}~{close_time.strftime('%H:%M')}) 외의 시간입니다."}
             
             # 3. 기존 예약과 충돌 확인 (백엔드 데이터 활용)
             for slot in booked_slots:

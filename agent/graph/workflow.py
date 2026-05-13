@@ -1,11 +1,13 @@
 from langgraph.graph import StateGraph, END
+
 from agent.graph.state import ReservationState
 from agent.graph.nodes import intake_node, booking_node, response_node
-from agent.graph.router import route_after_intake, route_after_booking
+from agent.graph.router import route_after_intake
+
 
 def create_workflow():
     """LangGraph workflow assembly"""
-    
+
     # 1. Initialize graph
     workflow = StateGraph(ReservationState)
 

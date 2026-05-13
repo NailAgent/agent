@@ -65,3 +65,6 @@ UNKNOWN_FALLBACK_MESSAGE = """
 
 # 방어용 fallback 메시지(생략 가능)
 MISSING_RESERVATION_DATETIME_MESSAGE = "예약 희망 날짜와 시간을 알려주세요."
+
+# legacy alias: nodes.py의 기존 오타/참조를 안전하게 흡수
+BOOKING_MISSING_DATETIME_MESSAGE = MISSING_RESERVATION_DATETIME_MESSAGE

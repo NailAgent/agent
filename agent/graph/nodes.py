@@ -1,12 +1,13 @@
 from agent.graph.state import ReservationState
 from agent.agents.intake_agent import IntakeAgent
+from agent.tools.backend_client import BackendClient
 from agent.tools.policy_engine import PolicyEngine
 from agent.agents.constants import (
     BOOKING_FORM_GUIDE,
     CANCEL_FALLBACK_MESSAGE,
     CHANGE_FALLBACK_MESSAGE,
     INQUIRY_FALLBACK_MESSAGE,
-    MISSING_RESERVATION_DATETIME_MESSAGE,
+    BOOKING_MISSING_DATETIME_MESSAGE,
     PAYMENT_FALLBACK_MESSAGE,
     UNKNOWN_FALLBACK_MESSAGE,
     WELCOME_MESSAGE,
@@ -14,6 +15,7 @@ from agent.agents.constants import (
 
 # Intake Agent Instance
 intake_agent = IntakeAgent()
+backend_client = BackendClient()
 
 def _intent_to_str(intent) -> str:
     """Normalize intent value from Enum or string to plain string."""
@@ -44,6 +46,7 @@ def intake_node(state: ReservationState):
     if not user_input:
         return {
             "intent": "greeting",
+            "slots": state.get("slots"),
             "missing_fields": [],
             "is_bookable": False,
             "booking_status": "N/A",
@@ -103,17 +106,10 @@ def booking_node(state: ReservationState):
             "response_draft": state.get("response_draft")
             or BOOKING_MISSING_DATETIME_MESSAGE,
         }
-    
-    # Backend simulation: Replace this with actual API calls
-    dummy_backend_data = {
-        "date": slots.reserve_date,
-        "business_hours": {"start": "10:00", "end": "22:00"},
-        "booked_slots": [
-            {"start": "11:00", "end": "12:30", "duration_min": 90},
-            {"start": "14:00", "end": "15:00", "duration_min": 60}
-        ]
-    }
-    
+
+    shop_info = backend_client.get_shop_info()
+    schedule = backend_client.get_schedule(slots.reserve_date)
+
     # 1. 소요 시간 계산
     duration = PolicyEngine.calculate_duration(slots.service_code, slots.off_removal)
     
@@ -122,22 +118,73 @@ def booking_node(state: ReservationState):
         slots.reserve_date, 
         slots.reserve_time, 
         duration, 
-        dummy_backend_data["booked_slots"]
+        schedule["booked_slots"],
+        business_hours=schedule["business_hours"],
     )
     
     if check["valid"]:
-        response = f"안녕하세요 고객님, 해당 시간 예약이 가능합니다! (소요 시간: 약 {duration}분)\n입금 안내를 도와드릴까요?"
-        return {"is_bookable": True, "booking_status": "pending_payment", "response_draft": response, "next_action": "notify_success"}
+        reservation_payload = backend_client.build_reservation_payload(
+            slots,
+            duration,
+            deposit_amount=shop_info["deposit_amount"],
+            designer=state.get("designer"),
+        )
+        reservation_result = backend_client.create_reservation(reservation_payload)
+        reserve_time_range = reservation_payload["reserve_time"]
+        base_message = shop_info["booking_message_text"].strip()
+        followup_line = "입금 안내를 도와드릴까요?"
+        if "입금 안내" in base_message or "도와드릴까요" in base_message:
+            followup_line = ""
+
+        response_parts = [
+            base_message,
+            f"- 예약 희망 시간: {reserve_time_range}",
+            f"- 예상 소요 시간: 약 {duration}분",
+            f"- 예약금: {shop_info['deposit_amount']}원",
+        ]
+        if reservation_result.get("source") == "backend":
+            response_parts.append("예약이 백엔드에 등록되었습니다.")
+        else:
+            response_parts.append("예약 정보가 임시 저장되었습니다.")
+        if followup_line:
+            response_parts.append(followup_line)
+        response = "\n".join(part for part in response_parts if part)
+        return {
+            "is_bookable": True,
+            "booking_status": "pending_payment",
+            "response_draft": response,
+            "next_action": "notify_success",
+            "policy_check_results": {
+                "source": schedule["source"],
+                "business_hours": schedule["business_hours"],
+                "booked_slots": schedule["booked_slots"],
+                "deposit_amount": shop_info["deposit_amount"],
+                "reservation_result": reservation_result,
+            },
+        }
     else:
         # 3. 예약 불가 시 대체 시간 추천 (백엔드 데이터를 기반으로 에이전트가 직접 계산하도록 구현)
         recommendations = PolicyEngine.get_available_recommendations(
-            dummy_backend_data["business_hours"],
-            dummy_backend_data["booked_slots"],
+            schedule["business_hours"],
+            schedule["booked_slots"],
             duration
         )
         rec_text = " / ".join(recommendations)
+        if not rec_text:
+            rec_text = "추천 가능한 시간대를 찾지 못했습니다. 다른 날짜를 알려주시면 다시 확인해드릴게요."
         response = f"죄송합니다 고객님, {check['reason']}\n대신 현재 예약 가능한 시간대는 다음과 같습니다.\n{rec_text}"
-        return {"is_bookable": False, "booking_status": "rejected", "response_draft": response, "next_action": "notify_failure"}
+        return {
+            "is_bookable": False,
+            "booking_status": "rejected",
+            "response_draft": response,
+            "next_action": "notify_failure",
+            "policy_check_results": {
+                "source": schedule["source"],
+                "business_hours": schedule["business_hours"],
+                "booked_slots": schedule["booked_slots"],
+                "reason": check["reason"],
+            },
+        }
 
 def response_node(state: ReservationState):
     print("--- [NODE] Response Draft ---")
