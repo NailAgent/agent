@@ -272,6 +272,7 @@ agent 내부 변환 후:
   <summary>Current v1 test DEMO outcomes (click)</summary>
   
   <div style="padding: 10px;">
+    ```bash
     (agent) sallysooo@labor:~/Desktop/Nailgent/agent$ python tests/test_v1_additional.py
     --- [NODE] Intake Agent ---
     --- [NODE] Response Draft ---
@@ -603,6 +604,7 @@ agent 내부 변환 후:
     [SUMMARY] 12/12 passed
     ################################################################################
     (agent) sallysooo@labor:~/Desktop/Nailgent/agent$ 
+    ```
   </div>
   
 </details>
