@@ -199,7 +199,6 @@ python agent/tests/test_v1_additional.py
 4. agent 테스트 또는 workflow 실행
 
 ### 11.3 환경 변수
-주로 사용하는 환경 변수는 다음과 같습니다.
 
 | 변수 | 의미 | 예시 |
 |---|---|---|
@@ -268,6 +267,346 @@ agent 내부 변환 후:
 - `booking_node`는 검증이 통과하면 실제 예약 생성까지 시도합니다.
 - `workflow.py`는 LangGraph를 직접 사용합니다.
 - `schema.py`는 Pydantic 모델을 사용합니다.
+
+<details>
+  <summary>Current v1 test DEMO outcomes (click)</summary>
+  
+  <div style="padding: 10px;">
+    (agent) sallysooo@labor:~/Desktop/Nailgent/agent$ python tests/test_v1_additional.py
+    --- [NODE] Intake Agent ---
+    --- [NODE] Response Draft ---
+
+    ================================================================================
+    [TEST] 1. 예약 문의 → booking으로 분류되는지
+    ================================================================================
+    [USER]
+    예약 문의
+
+    [RESULT]
+    - PASS: True
+    - intent: booking
+    - booking_status: N/A
+    - missing_fields: ['name', 'phone_num', 'off_removal', 'reserve_date', 'reserve_time', 'service_code', 'past_visit']
+    - slots: {'name': None, 'phone_num': None, 'off_removal': None, 'reserve_date': None, 'reserve_time': None, 'service_code': None, 'past_visit': None}
+
+    [RESPONSE]
+    안녕하세요 고객님~ 예약 문의 주셔서 감사합니다:)
+    아래 예약 형식에 맞게 채워서 보내주시면 확인 후 예약 도와드리겠습니다!! (* 표시는 필수사항)
+
+    - *성함:
+    - *전화번호 (010-0000-0000):
+    - *젤제거 유무(O/X):
+    - *예약 희망 날짜 (형식: 2026-04-12):
+    - *예약 희망 시간 (형식: 18:00):
+    - *원하시는 시술 종류(손톱 케어/기본네일/젤네일/페디큐어 등):
+    - *과거 방문경험(O/X):
+    - 알게된 경로(간판, 검색, 네이버 블로그, 인스타그램, 지인 소개 등):
+    - 기타 요청 사항(각종 요청/커스텀 디자인/등등):
+
+    <숙명네일샵 정책 안내>
+    • 영업 시간: 10:00-22:00 (매주 월요일 정기휴무)
+    • 각 시술별 소요 시간:
+        ◦ 기본 케어(30분) / 기본 네일(30분) / 젤 네일(1시간) / 기존 젤네일 제거 (30분)
+    • 예약 선입금: 2만원
+        ◦ 예약 등록 후 30분 안에 미결제 시 자동 취소됩니다.
+    • 예약 변경: 예약은 하루 전까지만 변경 가능하며, 당일 변경은 불가능합니다.
+    • 예약 취소: 이틀 전까지는 예약금 전체 환불 / 하루 전부터는 환불 불가합니다.
+    --- [NODE] Intake Agent ---
+    --- [NODE] Response Draft ---
+
+    ================================================================================
+    [TEST] 2. 예약만 말하고 정보 없음 → 예약 양식 안내
+    ================================================================================
+    [USER]
+    예약하고 싶어요
+
+    [RESULT]
+    - PASS: True
+    - intent: booking
+    - booking_status: N/A
+    - missing_fields: ['name', 'phone_num', 'off_removal', 'reserve_date', 'reserve_time', 'service_code', 'past_visit']
+    - slots: {'name': None, 'phone_num': None, 'off_removal': None, 'reserve_date': None, 'reserve_time': None, 'service_code': None, 'past_visit': None}
+
+    [RESPONSE]
+    안녕하세요 고객님~ 예약 문의 주셔서 감사합니다:)
+    아래 예약 형식에 맞게 채워서 보내주시면 확인 후 예약 도와드리겠습니다!! (* 표시는 필수사항)
+
+    - *성함:
+    - *전화번호 (010-0000-0000):
+    - *젤제거 유무(O/X):
+    - *예약 희망 날짜 (형식: 2026-04-12):
+    - *예약 희망 시간 (형식: 18:00):
+    - *원하시는 시술 종류(손톱 케어/기본네일/젤네일/페디큐어 등):
+    - *과거 방문경험(O/X):
+    - 알게된 경로(간판, 검색, 네이버 블로그, 인스타그램, 지인 소개 등):
+    - 기타 요청 사항(각종 요청/커스텀 디자인/등등):
+
+    <숙명네일샵 정책 안내>
+    • 영업 시간: 10:00-22:00 (매주 월요일 정기휴무)
+    • 각 시술별 소요 시간:
+        ◦ 기본 케어(30분) / 기본 네일(30분) / 젤 네일(1시간) / 기존 젤네일 제거 (30분)
+    • 예약 선입금: 2만원
+        ◦ 예약 등록 후 30분 안에 미결제 시 자동 취소됩니다.
+    • 예약 변경: 예약은 하루 전까지만 변경 가능하며, 당일 변경은 불가능합니다.
+    • 예약 취소: 이틀 전까지는 예약금 전체 환불 / 하루 전부터는 환불 불가합니다.
+    --- [NODE] Intake Agent ---
+    --- [NODE] Response Draft ---
+
+    ================================================================================
+    [TEST] 3. 이름 누락 → 이름만 추가 질문
+    ================================================================================
+    [USER]
+    - *전화번호: 010-1234-5678
+                - *젤제거 유무: O
+                - *예약 희망 날짜: 2026-05-07
+                - *예약 희망 시간: 17:00
+                - *원하시는 시술 종류: 젤네일
+                - *과거 방문경험: X
+
+    [RESULT]
+    - PASS: True
+    - intent: booking
+    - booking_status: N/A
+    - missing_fields: ['name']
+    - slots: {'name': None, 'phone_num': '010-1234-5678', 'off_removal': True, 'reserve_date': '2026-05-07', 'reserve_time': '17:00', 'service_code': 'GEL_NAIL', 'past_visit': False}
+
+    [RESPONSE]
+    예약을 위해 성함을 알려주세요.
+    --- [NODE] Intake Agent ---
+    --- [NODE] Booking Logic (Backend Integration) ---
+    --- [NODE] Response Draft ---
+
+    ================================================================================
+    [TEST] 4. 월요일 예약 → rejected
+    ================================================================================
+    [USER]
+    - *성함: 이민호
+                - *전화번호: 010-9999-8888
+                - *젤제거 유무: X
+                - *예약 희망 날짜: 2024-05-06
+                - *예약 희망 시간: 14:00
+                - *원하시는 시술 종류: 젤네일
+                - *과거 방문경험: O
+
+    [RESULT]
+    - PASS: True
+    - intent: booking
+    - booking_status: rejected
+    - missing_fields: []
+    - slots: {'name': '이민호', 'phone_num': '010-9999-8888', 'off_removal': False, 'reserve_date': '2024-05-06', 'reserve_time': '14:00', 'service_code': 'GEL_NAIL', 'past_visit': True}
+
+    [RESPONSE]
+    죄송합니다 고객님, 매주 월요일은 정기 휴무입니다.
+    대신 현재 예약 가능한 시간대는 다음과 같습니다.
+    10:00 / 12:30 / 13:00
+    --- [NODE] Intake Agent ---
+    --- [NODE] Booking Logic (Backend Integration) ---
+    --- [NODE] Response Draft ---
+
+    ================================================================================
+    [TEST] 5-1. 영업시간 전 예약 → rejected
+    ================================================================================
+    [USER]
+    - *성함: 김민지
+                - *전화번호: 010-1111-2222
+                - *젤제거 유무: X
+                - *예약 희망 날짜: 2026-05-07
+                - *예약 희망 시간: 09:00
+                - *원하시는 시술 종류: 젤네일
+                - *과거 방문경험: X
+
+    [RESULT]
+    - PASS: True
+    - intent: booking
+    - booking_status: rejected
+    - missing_fields: []
+    - slots: {'name': '김민지', 'phone_num': '010-1111-2222', 'off_removal': False, 'reserve_date': '2026-05-07', 'reserve_time': '09:00', 'service_code': 'GEL_NAIL', 'past_visit': False}
+
+    [RESPONSE]
+    죄송합니다 고객님, 영업시간(10:00~22:00) 외의 시간입니다.
+    대신 현재 예약 가능한 시간대는 다음과 같습니다.
+    10:00 / 12:30 / 13:00
+    --- [NODE] Intake Agent ---
+    --- [NODE] Booking Logic (Backend Integration) ---
+    --- [NODE] Response Draft ---
+
+    ================================================================================
+    [TEST] 5-2. 영업시간 후 예약 → rejected
+    ================================================================================
+    [USER]
+    - *성함: 김민지
+                - *전화번호: 010-1111-2222
+                - *젤제거 유무: X
+                - *예약 희망 날짜: 2026-05-07
+                - *예약 희망 시간: 22:30
+                - *원하시는 시술 종류: 젤네일
+                - *과거 방문경험: X
+
+    [RESULT]
+    - PASS: True
+    - intent: booking
+    - booking_status: rejected
+    - missing_fields: []
+    - slots: {'name': '김민지', 'phone_num': '010-1111-2222', 'off_removal': False, 'reserve_date': '2026-05-07', 'reserve_time': '22:30', 'service_code': 'GEL_NAIL', 'past_visit': False}
+
+    [RESPONSE]
+    죄송합니다 고객님, 영업시간(10:00~22:00) 외의 시간입니다.
+    대신 현재 예약 가능한 시간대는 다음과 같습니다.
+    10:00 / 12:30 / 13:00
+    --- [NODE] Intake Agent ---
+    --- [NODE] Booking Logic (Backend Integration) ---
+    --- [NODE] Response Draft ---
+
+    ================================================================================
+    [TEST] 6. 기존 예약과 충돌 → rejected + 대체 시간 추천
+    ================================================================================
+    [USER]
+    - *성함: 박서연
+                - *전화번호: 010-3333-4444
+                - *젤제거 유무: X
+                - *예약 희망 날짜: 2026-05-07
+                - *예약 희망 시간: 14:00
+                - *원하시는 시술 종류: 젤네일
+                - *과거 방문경험: X
+
+    [RESULT]
+    - PASS: True
+    - intent: booking
+    - booking_status: rejected
+    - missing_fields: []
+    - slots: {'name': '박서연', 'phone_num': '010-3333-4444', 'off_removal': False, 'reserve_date': '2026-05-07', 'reserve_time': '14:00', 'service_code': 'GEL_NAIL', 'past_visit': False}
+
+    [RESPONSE]
+    죄송합니다 고객님, 해당 시간에는 이미 예약이 있습니다.
+    대신 현재 예약 가능한 시간대는 다음과 같습니다.
+    10:00 / 12:30 / 13:00
+    --- [NODE] Intake Agent ---
+    --- [NODE] Booking Logic (Backend Integration) ---
+    --- [NODE] Response Draft ---
+
+    ================================================================================
+    [TEST] 7. 제거 O일 때 duration +30 되는지
+    ================================================================================
+    [USER]
+    - *성함: 김지수
+                - *전화번호: 010-1234-5678
+                - *젤제거 유무: O
+                - *예약 희망 날짜: 2026-05-07
+                - *예약 희망 시간: 17:00
+                - *원하시는 시술 종류: 젤네일
+                - *과거 방문경험: X
+
+    [RESULT]
+    - PASS: True
+    - intent: booking
+    - booking_status: pending_payment
+    - missing_fields: []
+    - slots: {'name': '김지수', 'phone_num': '010-1234-5678', 'off_removal': True, 'reserve_date': '2026-05-07', 'reserve_time': '17:00', 'service_code': 'GEL_NAIL', 'past_visit': False}
+
+    [RESPONSE]
+    안녕하세요 고객님, 해당 시간 예약이 가능합니다!
+    - 예약 희망 시간: 17:00-18:30
+    - 예상 소요 시간: 약 90분
+    - 예약금: 5000원
+    예약 정보가 임시 저장되었습니다.
+    입금 안내를 도와드릴까요?
+    --- [NODE] Intake Agent ---
+    --- [NODE] Response Draft ---
+
+    ================================================================================
+    [TEST] 8-1. 예약 변경 → v1 미지원 안내
+    ================================================================================
+    [USER]
+    예약 시간 바꾸고 싶어요
+
+    [RESULT]
+    - PASS: True
+    - intent: change
+    - booking_status: N/A
+    - missing_fields: []
+    - slots: {'name': None, 'phone_num': None, 'off_removal': None, 'reserve_date': None, 'reserve_time': None, 'service_code': None, 'past_visit': None}
+
+    [RESPONSE]
+
+    예약 변경 문의 감사합니다.
+    현재 자동 예약 변경 기능은 준비 중입니다.
+    변경을 원하시는 기존 예약 날짜와 새 희망 날짜/시간을 알려주시면 확인 도와드릴게요.
+
+    --- [NODE] Intake Agent ---
+    --- [NODE] Response Draft ---
+
+    ================================================================================
+    [TEST] 8-2. 예약 취소 → v1 미지원 안내
+    ================================================================================
+    [USER]
+    예약 취소하고 싶어요
+
+    [RESULT]
+    - PASS: True
+    - intent: cancel
+    - booking_status: N/A
+    - missing_fields: []
+    - slots: {'name': None, 'phone_num': None, 'off_removal': None, 'reserve_date': None, 'reserve_time': None, 'service_code': None, 'past_visit': None}
+
+    [RESPONSE]
+
+    예약 취소 문의 감사합니다.
+    현재 자동 예약 취소 기능은 준비 중입니다.
+    예약자 성함과 기존 예약 날짜를 알려주시면 확인 도와드릴게요.
+
+    --- [NODE] Intake Agent ---
+    --- [NODE] Response Draft ---
+
+    ================================================================================
+    [TEST] 9-1. 가격 문의 → booking으로 가지 않는지
+    ================================================================================
+    [USER]
+    가격 얼마예요?
+
+    [RESULT]
+    - PASS: True
+    - intent: inquiry
+    - booking_status: N/A
+    - missing_fields: []
+    - slots: {'name': None, 'phone_num': None, 'off_removal': None, 'reserve_date': None, 'reserve_time': None, 'service_code': None, 'past_visit': None}
+
+    [RESPONSE]
+
+    문의 감사합니다!
+    현재 v1에서는 신규 예약 접수를 우선 지원하고 있어요.
+    예약을 원하시면 '예약 문의'라고 입력해주세요.
+
+    --- [NODE] Intake Agent ---
+    --- [NODE] Response Draft ---
+
+    ================================================================================
+    [TEST] 9-2. 영업시간 문의 → booking으로 가지 않는지
+    ================================================================================
+    [USER]
+    영업시간이 어떻게 되나요?
+
+    [RESULT]
+    - PASS: True
+    - intent: inquiry
+    - booking_status: N/A
+    - missing_fields: []
+    - slots: {'name': None, 'phone_num': None, 'off_removal': None, 'reserve_date': None, 'reserve_time': None, 'service_code': None, 'past_visit': None}
+
+    [RESPONSE]
+
+    문의 감사합니다!
+    현재 v1에서는 신규 예약 접수를 우선 지원하고 있어요.
+    예약을 원하시면 '예약 문의'라고 입력해주세요.
+
+
+    ################################################################################
+    [SUMMARY] 12/12 passed
+    ################################################################################
+    (agent) sallysooo@labor:~/Desktop/Nailgent/agent$ 
+  </div>
+  
+</details>
+
 
 ---
 
