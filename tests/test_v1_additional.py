@@ -254,6 +254,27 @@ def main() -> None:
             expected_response_contains=["예약 취소", "준비 중"],
         ),
         TestCase(
+            name="8-3. 예약 변경 대상 조회 → pending_review",
+            message="남민서 2026-05-13 14:00 아트네일 예약 변경하고 싶어요",
+            expected_intent="change",
+            expected_status="pending_review",
+            expected_response_contains=["기존 예약을 찾았습니다", "남민서", "변경 희망 일정"],
+        ),
+        TestCase(
+            name="8-4. 예약 취소 대상 조회 → pending_review",
+            message="김지수 2026-05-14 13:00 페디큐어 예약 취소하고 싶어요",
+            expected_intent="cancel",
+            expected_status="pending_review",
+            expected_response_contains=["취소 대상 예약을 찾았습니다", "김지수"],
+        ),
+        TestCase(
+            name="8-5. 입금 확인 대상 조회 → pending_review",
+            message="정교은 2026-05-13 11:00 젤네일 입금했어요",
+            expected_intent="payment",
+            expected_status="pending_review",
+            expected_response_contains=["입금 확인 대상 예약을 찾았습니다", "정교은"],
+        ),
+        TestCase(
             name="9-1. 가격 문의 → booking으로 가지 않는지",
             message="가격 얼마예요?",
             expected_intent="inquiry",

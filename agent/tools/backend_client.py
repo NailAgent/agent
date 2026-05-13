@@ -37,6 +37,52 @@ class BackendClient:
         {"start": "11:00", "end": "12:30", "duration_min": 90},
         {"start": "14:00", "end": "15:00", "duration_min": 60},
     ]
+    DEFAULT_RESERVATIONS = [
+        {
+            "id": 1,
+            "name": "정교은",
+            "phone_num": "010-1111-2222",
+            "reserve_date": "2026-05-13",
+            "reserve_time": "11:00-12:30",
+            "service": "젤네일",
+            "off_removal": False,
+            "designer": "사장님",
+            "visit_status": "PENDING",
+        },
+        {
+            "id": 2,
+            "name": "남민서",
+            "phone_num": "010-2222-3333",
+            "reserve_date": "2026-05-13",
+            "reserve_time": "14:00-15:30",
+            "service": "아트네일",
+            "off_removal": True,
+            "designer": "사장님",
+            "visit_status": "CONFIRMED",
+        },
+        {
+            "id": 3,
+            "name": "김미지",
+            "phone_num": "010-3333-4444",
+            "reserve_date": "2026-05-14",
+            "reserve_time": "10:00-11:00",
+            "service": "젤네일",
+            "off_removal": False,
+            "designer": "사장님",
+            "visit_status": "VISITED",
+        },
+        {
+            "id": 4,
+            "name": "김지수",
+            "phone_num": "010-4444-5555",
+            "reserve_date": "2026-05-14",
+            "reserve_time": "13:00-14:30",
+            "service": "페디큐어",
+            "off_removal": True,
+            "designer": "사장님",
+            "visit_status": "NO_SHOW",
+        },
+    ]
 
     @classmethod
     def get_shop_info(cls) -> dict[str, Any]:
@@ -116,6 +162,88 @@ class BackendClient:
                     "data": None,
                 },
             }
+
+    @classmethod
+    def list_reservations(cls, page: int = 1, size: int = 100) -> dict[str, Any]:
+        """Fetch a reservation page from the backend or fallback fixtures."""
+        try:
+            response = requests.get(
+                f"{cls.DEFAULT_BASE_URL}/api/v1/bookings",
+                params={"page": page, "size": size},
+                timeout=5,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            data = payload.get("data", payload)
+            return {
+                "source": "backend",
+                "current_page": data.get("current_page") or data.get("currentPage") or page,
+                "total_pages": data.get("total_pages") or data.get("totalPages") or 1,
+                "bookings": data.get("bookings") or [],
+            }
+        except Exception:
+            return {
+                "source": "fallback",
+                "current_page": 1,
+                "total_pages": 1,
+                "bookings": list(cls.DEFAULT_RESERVATIONS),
+            }
+
+    @classmethod
+    def find_reservations(
+        cls,
+        name: Optional[str] = None,
+        reserve_date: Optional[str] = None,
+        reserve_time: Optional[str] = None,
+        service: Optional[str] = None,
+        visit_status: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Search reservations using the list API or fallback fixtures."""
+        candidates: list[dict[str, Any]] = []
+        page = 1
+        max_pages = 10
+
+        while page <= max_pages:
+            snapshot = cls.list_reservations(page=page, size=100)
+            bookings = snapshot.get("bookings", [])
+            if not bookings:
+                break
+            candidates.extend(bookings)
+            if snapshot.get("source") == "fallback":
+                break
+            total_pages = snapshot.get("total_pages", 1)
+            if page >= total_pages:
+                break
+            page += 1
+
+        def _matches(item: dict[str, Any]) -> bool:
+            if name and name not in str(item.get("name", "")):
+                return False
+            if reserve_date and reserve_date != str(item.get("reserve_date", "")):
+                return False
+            if reserve_time:
+                item_time = str(item.get("reserve_time", ""))
+                if reserve_time not in item_time and item_time not in reserve_time:
+                    return False
+            if service and service not in str(item.get("service", "")):
+                return False
+            if visit_status and visit_status.upper() != str(item.get("visit_status", "")).upper():
+                return False
+            return True
+
+        return [item for item in candidates if _matches(item)]
+
+    @classmethod
+    def format_reservation_summary(cls, reservation: dict[str, Any]) -> str:
+        """Create a short Korean summary for a reservation."""
+        return (
+            f"[예약 #{reservation.get('id', '?')}] "
+            f"{reservation.get('name', '알 수 없음')} | "
+            f"{reservation.get('reserve_date', '날짜 미상')} | "
+            f"{reservation.get('reserve_time', '시간 미상')} | "
+            f"{reservation.get('service', '시술 미상')} | "
+            f"{reservation.get('visit_status', '상태 미상')}"
+        )
 
     @classmethod
     def build_reservation_payload(

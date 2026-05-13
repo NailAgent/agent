@@ -265,8 +265,14 @@ agent 내부 변환 후:
 - `intake_agent.py`는 현재 booking intent에 대해 슬롯을 직접 추출할 수 있습니다.
 - `backend_client.py`는 백엔드가 살아 있으면 실제 API를 호출하고, 아니면 로컬 더미 값으로 이어집니다.
 - `booking_node`는 검증이 통과하면 실제 예약 생성까지 시도합니다.
+- `router.py`와 `workflow.py`는 booking/change/cancel/payment를 각각 다른 노드로 분기합니다.
 - `workflow.py`는 LangGraph를 직접 사용합니다.
 - `schema.py`는 Pydantic 모델을 사용합니다.
+- `change_node`, `cancel_node`, `payment_node`가 추가되어 예약 변경/취소/입금 확인도 같은 그래프 안에서 처리합니다.
+- 예약 성공 응답은 백엔드 응답 상태 코드까지 함께 남기도록 정리했습니다.
+
+> 아래 DEMO 블록은 초기 v1 실행 결과의 스냅샷입니다.
+> 현재 코드는 change/cancel/payment 케이스까지 포함해 더 넓게 동작합니다.
 
 <details>
   <summary>Current v1 test DEMO outcomes (click)</summary>
@@ -611,15 +617,3 @@ agent 내부 변환 후:
 
 
 ---
-
-## 14. What Comes Next
-
-현재 V1에서 다음으로 자연스럽게 이어질 작업은 아래와 같습니다.
-
-1. change/cancel 전용 노드 추가
-2. payment 확인 노드 추가
-3. customer/detail/shopinfo 조회 API가 생기면 agent adapter에 연결
-4. owner review / exception routing 추가
-5. dashboard와 응답 메시지 포맷 정교화
-
-
