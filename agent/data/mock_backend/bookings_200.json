@@ -1,0 +1,53 @@
+{
+  "status": 200,
+  "data": {
+    "current_page": 1,
+    "total_pages": 1,
+    "bookings": [
+      {
+        "id": 1,
+        "name": "정교은",
+        "phone_num": "010-1111-2222",
+        "reserve_date": "2026-05-13",
+        "reserve_time": "11:00-12:30",
+        "service": "젤네일",
+        "off_removal": false,
+        "designer": "사장님",
+        "visit_status": "PENDING"
+      },
+      {
+        "id": 2,
+        "name": "남민서",
+        "phone_num": "010-2222-3333",
+        "reserve_date": "2026-05-13",
+        "reserve_time": "14:00-15:30",
+        "service": "아트네일",
+        "off_removal": true,
+        "designer": "사장님",
+        "visit_status": "CONFIRMED"
+      },
+      {
+        "id": 3,
+        "name": "김미지",
+        "phone_num": "010-3333-4444",
+        "reserve_date": "2026-05-14",
+        "reserve_time": "10:00-11:00",
+        "service": "젤네일",
+        "off_removal": false,
+        "designer": "사장님",
+        "visit_status": "VISITED"
+      },
+      {
+        "id": 4,
+        "name": "김지수",
+        "phone_num": "010-4444-5555",
+        "reserve_date": "2026-05-14",
+        "reserve_time": "13:00-14:30",
+        "service": "페디큐어",
+        "off_removal": true,
+        "designer": "사장님",
+        "visit_status": "NO_SHOW"
+      }
+    ]
+  }
+}
