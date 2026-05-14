@@ -1,9 +1,12 @@
 from enum import Enum
 from typing import Optional, List
+
 from pydantic import BaseModel, Field
+
 
 class BookingSlots(BaseModel):
     """Structure for nail shop booking information."""
+
     name: Optional[str] = Field(None, description="The customer's name")
     phone_num: Optional[str] = Field(None, description="The customer's phone number (e.g., 010-1234-5678)")
     off_removal: Optional[bool] = Field(None, description="Whether the customer needs old gel removal (O/X)")
@@ -11,6 +14,7 @@ class BookingSlots(BaseModel):
     reserve_time: Optional[str] = Field(None, description="The requested reservation time (HH:MM)")
     service_code: Optional[str] = Field(None, description="The type of service (e.g., GEL_BASIC, GEL_NAIL, PEDICURE)")
     past_visit: Optional[bool] = Field(None, description="Whether the customer has visited before (O/X)")
+
 
 class Intent(str, Enum):
     """Allowed intent labels returned by the Intake Agent."""
@@ -23,8 +27,10 @@ class Intent(str, Enum):
     PAYMENT = "payment"  # v1 미구현
     UNKNOWN = "unknown"  # 재질문
 
+
 class IntakeResult(BaseModel):
     """Result of the initial message analysis by the Intake Agent."""
+
     intent: Intent = Field(..., description="The detected intent (Allowed values: greeting, booking, inquiry, change, cancel, payment, unknown.)")
     slots: BookingSlots = Field(..., description="Extracted booking information")
     missing_fields: List[str] = Field(default_factory=list, description="List of required fields that are missing")
