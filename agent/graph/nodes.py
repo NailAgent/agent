@@ -155,7 +155,33 @@ def booking_node(state: ReservationState):
         }
 
     shop_info = backend_client.get_shop_info()
+    if not shop_info.get("success", True):
+        return {
+            "is_bookable": False,
+            "booking_status": "backend_error",
+            "next_action": shop_info.get("next_action", "human_review"),
+            "response_draft": "현재 샵 설정 정보를 불러올 수 없어 예약 진행이 어렵습니다. 확인 후 안내드릴게요.",
+            "policy_check_results": {
+                "source": shop_info.get("source"),
+                "status_code": shop_info.get("status_code"),
+                "error_code": shop_info.get("error_code"),
+                "message": shop_info.get("message"),
+            },
+        }
+
     schedule = backend_client.get_schedule(slots.reserve_date)
+    if not schedule.get("success", True):
+        return {
+            "is_bookable": False,
+            "booking_status": "backend_error",
+            "next_action": "retry_or_human_review",
+            "response_draft": "현재 예약 시스템 연결이 원활하지 않아 예약 가능 시간을 확인하기 어렵습니다. 확인 후 안내드릴게요.",
+            "policy_check_results": {
+                "source": schedule.get("source"),
+                "business_hours": schedule.get("business_hours"),
+                "booked_slots": schedule.get("booked_slots"),
+            },
+        }
 
     # 1. 소요 시간 계산
     duration = PolicyEngine.calculate_duration(slots.service_code, slots.off_removal)

@@ -3,191 +3,209 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta
 from typing import Any, Optional
+import re
 
 import requests
 
 from agent.agents.schema import BookingSlots
+from agent.tools.mock_loader import load_mock_json
 
 
 class BackendClient:
     """Thin adapter for the backend API with deterministic fallback values."""
 
     DEFAULT_BASE_URL = os.getenv("BACKEND_BASE_URL", "http://localhost:8080").rstrip("/")
-    DEFAULT_DEPOSIT_AMOUNT = 5000
-    DEFAULT_ACCOUNT_NUMBER = "우리은행 1002-061-241977"
-    DEFAULT_BUSINESS_HOUR = "10:00-22:00"
-    DEFAULT_BOOKING_MESSAGE = "안녕하세요 고객님, 해당 시간 예약이 가능합니다!"
-    DEFAULT_POLICY_TEXT = (
-        "영업시간: 10:00-22:00 / 매주 월요일 정기휴무 / 예약금 5000원 / "
-        "예약 변경은 하루 전까지만 가능하며, 당일 변경은 불가합니다."
-    )
-    DEFAULT_BOOKING_FORM_TEXT = """안녕하세요 고객님~ 예약 문의 주셔서 감사합니다:)
-아래 예약 형식에 맞게 채워서 보내주시면 확인 후 예약 도와드리겠습니다!! (* 표시는 필수사항)
-
-- *성함:
-- *전화번호 (010-0000-0000):
-- *젤제거 유무(O/X):
-- *예약 희망 날짜 (형식: 2026-04-12):
-- *예약 희망 시간 (형식: 18:00):
-- *원하시는 시술 종류(손톱 케어/기본네일/젤네일/페디큐어 등):
-- *과거 방문경험(O/X):
-"""
-    DEFAULT_SERVICES_JSON = '{"GEL_BASIC": 30000, "GEL_NAIL": 50000, "PEDICURE": 60000}'
-    DEFAULT_BOOKED_SLOTS = [
-        {"start": "11:00", "end": "12:30", "duration_min": 90},
-        {"start": "14:00", "end": "15:00", "duration_min": 60},
-    ]
-    DEFAULT_RESERVATIONS = [
-        {
-            "id": 1,
-            "name": "정교은",
-            "phone_num": "010-1111-2222",
-            "reserve_date": "2026-05-13",
-            "reserve_time": "11:00-12:30",
-            "service": "젤네일",
-            "off_removal": False,
-            "designer": "사장님",
-            "visit_status": "PENDING",
-        },
-        {
-            "id": 2,
-            "name": "남민서",
-            "phone_num": "010-2222-3333",
-            "reserve_date": "2026-05-13",
-            "reserve_time": "14:00-15:30",
-            "service": "아트네일",
-            "off_removal": True,
-            "designer": "사장님",
-            "visit_status": "CONFIRMED",
-        },
-        {
-            "id": 3,
-            "name": "김미지",
-            "phone_num": "010-3333-4444",
-            "reserve_date": "2026-05-14",
-            "reserve_time": "10:00-11:00",
-            "service": "젤네일",
-            "off_removal": False,
-            "designer": "사장님",
-            "visit_status": "VISITED",
-        },
-        {
-            "id": 4,
-            "name": "김지수",
-            "phone_num": "010-4444-5555",
-            "reserve_date": "2026-05-14",
-            "reserve_time": "13:00-14:30",
-            "service": "페디큐어",
-            "off_removal": True,
-            "designer": "사장님",
-            "visit_status": "NO_SHOW",
-        },
-    ]
+    USE_MOCK_BACKEND = os.getenv("USE_MOCK_BACKEND", "false").lower() in {"1", "true", "yes", "on"}
 
     @classmethod
     def get_shop_info(cls) -> dict[str, Any]:
-        """Return shop config from backend or fallback defaults."""
+        """[샵정보 조회] Return shop config from backend or fallback defaults."""
         try:
             response = requests.get(f"{cls.DEFAULT_BASE_URL}/api/v1/shopinfo", timeout=5)
-            response.raise_for_status()
-            payload = response.json()
-            data = payload.get("data", payload)
-            return {
-                "business_hour": data.get("business_hour") or cls.DEFAULT_BUSINESS_HOUR,
-                "closed_days": data.get("closed_days", 0),
-                "booking_form_text": data.get("booking_form_text") or cls.DEFAULT_BOOKING_FORM_TEXT,
-                "services_json": data.get("services_json") or cls.DEFAULT_SERVICES_JSON,
-                "deposit_amount": data.get("deposit_amount") or cls.DEFAULT_DEPOSIT_AMOUNT,
-                "account_number": data.get("account_number") or cls.DEFAULT_ACCOUNT_NUMBER,
-                "policy_text": data.get("policy_text") or cls.DEFAULT_POLICY_TEXT,
-                "booking_message_text": data.get("booking_message_text") or cls.DEFAULT_BOOKING_MESSAGE,
-            }
-        except Exception:
-            return cls._fallback_shop_info()
+            payload = cls._response_json(response)
+
+            # 200 : backend /api/v1/shopinfo data
+            if response.status_code == 200:
+                return cls._normalize_shop_info(payload, source="backend", status_code=response.status_code)
+
+            mock = cls._mock_shop_info()
+            if mock:
+                return mock
+
+            # 404 NOT FOUND
+            return cls._shop_info_error(
+                status_code=response.status_code,
+                error_code=payload.get("error_code", "UNKNOWN_BACKEND_ERROR"),
+                message=payload.get("message", "샵 정보를 불러올 수 없습니다."),
+                next_action="retry_or_human_review" if response.status_code >= 500 else "human_review",
+            )
+
+        # 500 INTERNAL SERVER ERROR
+        except (requests.RequestException, ValueError) as exc:
+            mock = cls._mock_shop_info()
+            if mock:
+                return mock
+
+            return cls._shop_info_error(
+                error_code="BACKEND_UNAVAILABLE",
+                message="백엔드 서버에 연결할 수 없습니다.",
+                error=str(exc),
+                next_action="retry_or_human_review",
+            )
 
     @classmethod
     def get_schedule(cls, date_str: str) -> dict[str, Any]:
-        """Return business hours and booked slots for a given date."""
+        """[예약 스케줄 조회] Return business hours and booked slots for a given date."""
+        if not cls._is_valid_date(date_str):
+            return cls._schedule_error(
+                date_str,
+                status_code=400,
+                error_code="INVALID_DATE_PARAMETER",
+                message="date는 YYYY-MM-DD 형식이어야 합니다.",
+                next_action="human_review",
+            )
+
         try:
             response = requests.get(
                 f"{cls.DEFAULT_BASE_URL}/api/v1/bookings/schedule",
                 params={"date": date_str},
                 timeout=5,
             )
-            response.raise_for_status()
-            payload = response.json()
-            data = payload.get("data", payload)
+            payload = cls._response_json(response)
 
-            business_hour = data.get("business_hour") or data.get("businessHour") or cls.DEFAULT_BUSINESS_HOUR
-            booked = data.get("booked_schedules") or data.get("bookedSchedules") or []
+            # 200 : backend /api/v1/bookings/schedule?date={date} data
+            if response.status_code == 200:
+                return cls._normalize_schedule(payload, source="backend", status_code=response.status_code, date_str=date_str)
 
-            return {
-                "date": data.get("date") or date_str,
-                "business_hours": cls._parse_business_hours(business_hour, date_str),
-                "booked_slots": cls._normalize_booked_slots(booked),
-                "source": "backend",
-            }
-        except Exception:
-            shop = cls.get_shop_info()
-            return {
-                "date": date_str,
-                "business_hours": cls._parse_business_hours(shop["business_hour"], date_str),
-                "booked_slots": list(cls.DEFAULT_BOOKED_SLOTS),
-                "source": "fallback",
-            }
+            mock = cls._mock_schedule(date_str)
+            if mock:
+                return mock
+
+            # 400 BAD REQUEST
+            return cls._schedule_error(
+                date_str,
+                status_code=response.status_code,
+                error_code=payload.get("error_code", "UNKNOWN_BACKEND_ERROR"),
+                message=payload.get("message", "예약 스케줄을 불러올 수 없습니다."),
+                next_action="retry_or_human_review" if response.status_code >= 500 else "human_review",
+            )
+
+        # 500 INTERNAL SERVER ERROR
+        except (requests.RequestException, ValueError) as exc:
+            if not cls.USE_MOCK_BACKEND:
+                return cls._schedule_error(
+                    date_str,
+                    error_code="BACKEND_UNAVAILABLE",
+                    message="백엔드 서버에 연결할 수 없습니다.",
+                    error=str(exc),
+                    next_action="retry_or_human_review",
+                )
+
+            mock = cls._mock_schedule(date_str)
+            if mock:
+                return mock
+
+            return cls._schedule_error(
+                date_str,
+                error_code="BACKEND_UNAVAILABLE",
+                message="백엔드 연결 실패 후 사용할 mock schedule도 없습니다.",
+                error=str(exc),
+                next_action="retry_or_human_review",
+            )
 
     @classmethod
     def create_reservation(cls, payload: dict[str, Any]) -> dict[str, Any]:
-        """Persist a reservation through the backend or return a deterministic fallback."""
+        """[예약 생성] Persist a reservation through the backend or return a deterministic fallback."""
         try:
             response = requests.post(
                 f"{cls.DEFAULT_BASE_URL}/api/v1/bookings",
                 json=payload,
                 timeout=5,
             )
-            response.raise_for_status()
-            return {
-                "success": True,
-                "source": "backend",
-                "status_code": response.status_code,
-                "response": response.json() if response.content else None,
-            }
-        except Exception:
-            return {
-                "success": True,
-                "source": "fallback",
-                "status_code": 201,
-                "response": {
-                    "status": 201,
-                    "data": None,
-                },
-            }
+            response_payload = cls._response_json(response)
+
+            # 200 : backend /api/v1/bookings POST
+            if 200 <= response.status_code < 300:
+                return {
+                    "success": True,
+                    "source": "backend",
+                    "status_code": response.status_code,
+                    "response": response_payload or None,
+                }
+
+            # 400 BAD REQUEST
+            return cls._reservation_error(
+                status_code=response.status_code,
+                error_code=response_payload.get("error_code", "UNKNOWN_BACKEND_ERROR"),
+                message=response_payload.get("message", "예약 생성에 실패했습니다."),
+                response=response_payload or None,
+                next_action="retry_or_human_review" if response.status_code >= 500 else "human_review",
+            )
+            
+        # 500 INTERNAL SERVER ERROR
+        except (requests.RequestException, ValueError) as exc:
+            if not cls.USE_MOCK_BACKEND:
+                return cls._reservation_error(
+                    error_code="BACKEND_UNAVAILABLE",
+                    message="백엔드 서버에 연결할 수 없습니다.",
+                    error=str(exc),
+                    next_action="retry_or_human_review",
+                )
+
+            mock = cls._mock_create_booking()
+            if mock:
+                return mock
+
+            return cls._reservation_error(
+                error_code="BACKEND_UNAVAILABLE",
+                message="백엔드 연결 실패 후 사용할 mock 예약 생성 응답도 없습니다.",
+                error=str(exc),
+                next_action="retry_or_human_review",
+            )
 
     @classmethod
     def list_reservations(cls, page: int = 1, size: int = 100) -> dict[str, Any]:
-        """Fetch a reservation page from the backend or fallback fixtures."""
+        """[변경/취소/입금확인] Fetch a reservation page from the backend or fallback fixtures."""
         try:
             response = requests.get(
                 f"{cls.DEFAULT_BASE_URL}/api/v1/bookings",
                 params={"page": page, "size": size},
                 timeout=5,
             )
-            response.raise_for_status()
-            payload = response.json()
-            data = payload.get("data", payload)
-            return {
-                "source": "backend",
-                "current_page": data.get("current_page") or data.get("currentPage") or page,
-                "total_pages": data.get("total_pages") or data.get("totalPages") or 1,
-                "bookings": data.get("bookings") or [],
-            }
-        except Exception:
-            return {
-                "source": "fallback",
-                "current_page": 1,
-                "total_pages": 1,
-                "bookings": list(cls.DEFAULT_RESERVATIONS),
-            }
+            payload = cls._response_json(response)
+
+            if response.status_code == 200:
+                return cls._normalize_reservations(payload, source="backend", status_code=response.status_code, page=page)
+
+            return cls._reservations_error(
+                page=page,
+                status_code=response.status_code,
+                error_code=payload.get("error_code", "UNKNOWN_BACKEND_ERROR"),
+                message=payload.get("message", "예약 목록을 불러올 수 없습니다."),
+                response=payload or None,
+                next_action="retry_or_human_review" if response.status_code >= 500 else "human_review",
+            )
+        except (requests.RequestException, ValueError) as exc:
+            if not cls.USE_MOCK_BACKEND:
+                return cls._reservations_error(
+                    page=page,
+                    error_code="BACKEND_UNAVAILABLE",
+                    message="백엔드 서버에 연결할 수 없습니다.",
+                    error=str(exc),
+                    next_action="retry_or_human_review",
+                )
+
+            mock = cls._mock_reservations(page)
+            if mock:
+                return mock
+
+            return cls._reservations_error(
+                page=page,
+                error_code="BACKEND_UNAVAILABLE",
+                message="백엔드 연결 실패 후 사용할 mock 예약 목록도 없습니다.",
+                error=str(exc),
+                next_action="retry_or_human_review",
+            )
 
     @classmethod
     def find_reservations(
@@ -198,7 +216,7 @@ class BackendClient:
         service: Optional[str] = None,
         visit_status: Optional[str] = None,
     ) -> list[dict[str, Any]]:
-        """Search reservations using the list API or fallback fixtures."""
+        """[변경/취소/입금확인] Search reservations using the list API or fallback fixtures."""
         candidates: list[dict[str, Any]] = []
         page = 1
         max_pages = 10
@@ -209,7 +227,7 @@ class BackendClient:
             if not bookings:
                 break
             candidates.extend(bookings)
-            if snapshot.get("source") == "fallback":
+            if not snapshot.get("success", True) or snapshot.get("source") == "mock":
                 break
             total_pages = snapshot.get("total_pages", 1)
             if page >= total_pages:
@@ -253,8 +271,11 @@ class BackendClient:
         deposit_amount: Optional[int] = None,
         designer: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Convert agent slots into backend reservation request payload."""
-        shop = cls.get_shop_info()
+        """[예약 생성] Convert agent slots into backend reservation request payload."""
+        shop = cls.get_shop_info() if deposit_amount is None else {}
+        resolved_deposit_amount = deposit_amount if deposit_amount is not None else shop.get("deposit_amount")
+        cls._validate_reservation_payload_inputs(slots, estimated_duration_min, resolved_deposit_amount)
+
         reserve_time = cls._format_reserve_time(slots.reserve_time, estimated_duration_min)
         service_map = {
             "GEL_BASIC": "기본네일",
@@ -262,7 +283,7 @@ class BackendClient:
             "PEDICURE": "페디큐어",
         }
 
-        return {
+        payload = {
             "name": slots.name,
             "phone_num": slots.phone_num,
             "reserve_date": slots.reserve_date,
@@ -270,29 +291,375 @@ class BackendClient:
             "estimated_duration_min": estimated_duration_min,
             "service": service_map.get(slots.service_code or "", slots.service_code or "젤네일"),
             "off_removal": bool(slots.off_removal),
-            "deposit_amount": deposit_amount or shop["deposit_amount"],
+            "deposit_amount": resolved_deposit_amount,
             "designer": designer,
+        }
+        cls._validate_required_fields(
+            payload,
+            [
+                "name",
+                "phone_num",
+                "reserve_date",
+                "reserve_time",
+                "estimated_duration_min",
+                "service",
+                "off_removal",
+                "deposit_amount",
+            ],
+        )
+        return payload
+
+    @classmethod
+    def _validate_reservation_payload_inputs(
+        cls,
+        slots: BookingSlots,
+        estimated_duration_min: int,
+        deposit_amount: int | None,
+    ) -> None:
+        missing_fields = []
+        for field_name in ("name", "phone_num", "reserve_date", "reserve_time"):
+            if cls._is_blank(getattr(slots, field_name, None)):
+                missing_fields.append(field_name)
+
+        if cls._is_blank(slots.service_code):
+            missing_fields.append("service")
+        if slots.off_removal is None:
+            missing_fields.append("off_removal")
+        if estimated_duration_min is None:
+            missing_fields.append("estimated_duration_min")
+        if deposit_amount is None:
+            missing_fields.append("deposit_amount")
+
+        if missing_fields:
+            raise ValueError(f"Missing required reservation fields: {', '.join(missing_fields)}")
+
+    @classmethod
+    def _validate_required_fields(cls, payload: dict[str, Any], required_fields: list[str]) -> None:
+        missing_fields = [field_name for field_name in required_fields if cls._is_blank(payload.get(field_name))]
+        if missing_fields:
+            raise ValueError(f"Missing required reservation fields: {', '.join(missing_fields)}")
+
+    @staticmethod
+    def _is_blank(value: Any) -> bool:
+        return value is None or (isinstance(value, str) and not value.strip())
+
+    @staticmethod
+    def _mock_data(filename: str) -> dict[str, Any]:
+        try:
+            payload = load_mock_json(filename)
+        except Exception:
+            return {}
+        data = payload.get("data", payload)
+        return data if isinstance(data, dict) else {}
+
+    @classmethod
+    def _mock_shop_info(cls) -> dict[str, Any]:
+        if not cls.USE_MOCK_BACKEND:
+            return {}
+
+        try:
+            payload = load_mock_json("shopinfo_200.json")
+        except Exception:
+            return {}
+        if not payload:
+            return {}
+        return cls._normalize_shop_info(payload, source="mock", status_code=payload.get("status", 200))
+
+    @classmethod
+    def _mock_create_booking(cls) -> dict[str, Any]:
+        if not cls.USE_MOCK_BACKEND:
+            return {}
+
+        try:
+            payload = load_mock_json("create_booking_201.json")
+        except Exception:
+            return {}
+        if not payload:
+            return {}
+
+        return {
+            "success": True,
+            "source": "mock",
+            "status_code": payload.get("status", 201),
+            "response": payload,
         }
 
     @classmethod
-    def _fallback_shop_info(cls) -> dict[str, Any]:
+    def _mock_reservations(cls, page: int) -> dict[str, Any]:
+        if not cls.USE_MOCK_BACKEND:
+            return {}
+
+        try:
+            payload = load_mock_json("bookings_200.json")
+        except Exception:
+            return {}
+        if not payload:
+            return {}
+
+        normalized = cls._normalize_reservations(payload, source="mock", status_code=payload.get("status", 200), page=page)
+        return normalized if normalized.get("success") else {}
+
+    @staticmethod
+    def _normalize_shop_info(payload: dict[str, Any], *, source: str, status_code: int | None = None) -> dict[str, Any]:
+        data = payload.get("data", payload)
+        if not isinstance(data, dict):
+            data = {}
+
         return {
-            "business_hour": cls.DEFAULT_BUSINESS_HOUR,
-            "closed_days": 0,
-            "booking_form_text": cls.DEFAULT_BOOKING_FORM_TEXT,
-            "services_json": cls.DEFAULT_SERVICES_JSON,
-            "deposit_amount": cls.DEFAULT_DEPOSIT_AMOUNT,
-            "account_number": cls.DEFAULT_ACCOUNT_NUMBER,
-            "policy_text": cls.DEFAULT_POLICY_TEXT,
-            "booking_message_text": cls.DEFAULT_BOOKING_MESSAGE,
+            "success": True,
+            "source": source,
+            "status_code": status_code,
+            "business_hour": data.get("business_hour"),
+            "closed_days": data.get("closed_days"),
+            "booking_form_text": data.get("booking_form_text"),
+            "services_json": data.get("services_json"),
+            "deposit_amount": data.get("deposit_amount"),
+            "account_number": data.get("account_number"),
+            "policy_text": data.get("policy_text"),
+            "booking_message_text": data.get("booking_message_text"),
         }
+
+    @staticmethod
+    def _normalize_reservations(
+        payload: dict[str, Any],
+        *,
+        source: str,
+        status_code: int | None = None,
+        page: int,
+    ) -> dict[str, Any]:
+        data = payload.get("data", payload)
+        if not isinstance(data, dict):
+            return BackendClient._reservations_error(
+                page=page,
+                status_code=status_code,
+                error_code="INVALID_BOOKINGS_RESPONSE",
+                message="예약 목록 응답 data 형식이 올바르지 않습니다.",
+            )
+
+        bookings = data.get("bookings")
+        if bookings is None:
+            return BackendClient._reservations_error(
+                page=page,
+                status_code=status_code,
+                error_code="INVALID_BOOKINGS_RESPONSE",
+                message="예약 목록 응답에 bookings가 없습니다.",
+            )
+        if not isinstance(bookings, list):
+            return BackendClient._reservations_error(
+                page=page,
+                status_code=status_code,
+                error_code="INVALID_BOOKINGS_RESPONSE",
+                message="예약 목록 응답의 bookings 형식이 올바르지 않습니다.",
+            )
+
+        return {
+            "success": True,
+            "source": source,
+            "status_code": status_code,
+            "current_page": data.get("current_page") or data.get("currentPage") or page,
+            "total_pages": data.get("total_pages") or data.get("totalPages") or 1,
+            "bookings": bookings,
+        }
+
+    @classmethod
+    def _mock_schedule(cls, date_str: str) -> dict[str, Any]:
+        if not cls.USE_MOCK_BACKEND:
+            return {}
+
+        try:
+            payload = load_mock_json("schedule_200.json")
+        except Exception:
+            return {}
+        if not payload:
+            return {}
+
+        normalized = cls._normalize_schedule(payload, source="mock", status_code=payload.get("status", 200), date_str=date_str)
+        return normalized if normalized.get("success") else {}
+
+    @classmethod
+    def _normalize_schedule(
+        cls,
+        payload: dict[str, Any],
+        *,
+        source: str,
+        status_code: int | None = None,
+        date_str: str,
+    ) -> dict[str, Any]:
+        data = payload.get("data", payload)
+        if not isinstance(data, dict):
+            return cls._schedule_error(
+                date_str,
+                status_code=status_code,
+                error_code="INVALID_SCHEDULE_RESPONSE",
+                message="예약 스케줄 응답 data 형식이 올바르지 않습니다.",
+            )
+
+        business_hour = data.get("business_hour") or data.get("businessHour")
+        if not business_hour:
+            return cls._schedule_error(
+                date_str,
+                status_code=status_code,
+                error_code="INVALID_SCHEDULE_RESPONSE",
+                message="예약 스케줄 응답에 business_hour가 없습니다.",
+            )
+
+        if "booked_schedules" in data:
+            booked = data["booked_schedules"]
+        elif "bookedSchedules" in data:
+            booked = data["bookedSchedules"]
+        else:
+            return cls._schedule_error(
+                date_str,
+                status_code=status_code,
+                error_code="INVALID_SCHEDULE_RESPONSE",
+                message="예약 스케줄 응답에 booked_schedules가 없습니다.",
+            )
+
+        if not isinstance(booked, list):
+            return cls._schedule_error(
+                date_str,
+                status_code=status_code,
+                error_code="INVALID_SCHEDULE_RESPONSE",
+                message="예약 스케줄 응답의 booked_schedules 형식이 올바르지 않습니다.",
+            )
+
+        try:
+            business_hours = cls._parse_business_hours(business_hour, date_str)
+        except ValueError as exc:
+            return cls._schedule_error(
+                date_str,
+                status_code=status_code,
+                error_code="INVALID_SCHEDULE_RESPONSE",
+                message=str(exc),
+            )
+
+        return {
+            "success": True,
+            "source": source,
+            "status_code": status_code,
+            "date": data.get("date") or date_str,
+            "business_hours": business_hours,
+            "booked_slots": cls._normalize_booked_slots(booked),
+        }
+
+    @staticmethod
+    def _shop_info_error(
+        *,
+        status_code: int | None = None,
+        error_code: str = "BACKEND_UNAVAILABLE",
+        message: str = "현재 샵 정보를 불러올 수 없습니다.",
+        error: str | None = None,
+        next_action: str = "human_review",
+    ) -> dict[str, Any]:
+        return {
+            "success": False,
+            "source": "backend_error",
+            "status_code": status_code,
+            "error_code": error_code,
+            "message": message,
+            "error": error,
+            "next_action": next_action,
+            "data": None,
+        }
+
+    @staticmethod
+    def _reservation_error(
+        *,
+        status_code: int | None = None,
+        error_code: str = "BACKEND_UNAVAILABLE",
+        message: str = "예약 생성에 실패했습니다.",
+        error: str | None = None,
+        response: dict[str, Any] | None = None,
+        next_action: str = "human_review",
+    ) -> dict[str, Any]:
+        return {
+            "success": False,
+            "source": "backend_error",
+            "status_code": status_code,
+            "error_code": error_code,
+            "message": message,
+            "error": error,
+            "response": response,
+            "next_action": next_action,
+        }
+
+    @staticmethod
+    def _reservations_error(
+        *,
+        page: int,
+        status_code: int | None = None,
+        error_code: str = "BACKEND_UNAVAILABLE",
+        message: str = "예약 목록을 불러올 수 없습니다.",
+        error: str | None = None,
+        response: dict[str, Any] | None = None,
+        next_action: str = "human_review",
+    ) -> dict[str, Any]:
+        return {
+            "success": False,
+            "source": "backend_error",
+            "status_code": status_code,
+            "error_code": error_code,
+            "message": message,
+            "error": error,
+            "response": response,
+            "next_action": next_action,
+            "current_page": page,
+            "total_pages": 0,
+            "bookings": [],
+        }
+
+    @classmethod
+    def _schedule_error(
+        cls,
+        date_str: str,
+        *,
+        status_code: int | None = None,
+        error_code: str = "BACKEND_UNAVAILABLE",
+        message: str = "예약 스케줄을 불러올 수 없습니다.",
+        error: str | None = None,
+        next_action: str = "human_review",
+    ) -> dict[str, Any]:
+        return {
+            "success": False,
+            "date": date_str,
+            "business_hours": {"start": "00:00", "end": "00:00"},
+            "booked_slots": [],
+            "source": "backend_error",
+            "status_code": status_code,
+            "error_code": error_code,
+            "message": message,
+            "error": error,
+            "next_action": next_action,
+            "data": None,
+        }
+
+    @staticmethod
+    def _response_json(response: requests.Response) -> dict[str, Any]:
+        if not response.content:
+            return {}
+        payload = response.json()
+        return payload if isinstance(payload, dict) else {}
+
+    @staticmethod
+    def _is_valid_date(date_str: str) -> bool:
+        if not isinstance(date_str, str) or not date_str:
+            return False
+        try:
+            datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            return False
+        return True
 
     @classmethod
     def _parse_business_hours(cls, business_hour_text: str, date_str: Optional[str] = None) -> dict[str, str]:
+        """Normalize backend business hours for use by the policy engine."""
+
+        if not business_hour_text:
+            raise ValueError("business_hour is required")
+
         text = business_hour_text.replace(" ", "")
 
         def _match_time(label: str) -> Optional[dict[str, str]]:
-            import re
 
             match = re.search(rf"{label}[:：]?(\d{{2}}:\d{{2}})-(\d{{2}}:\d{{2}})", text)
             if not match:
@@ -302,34 +669,35 @@ class BackendClient:
         if date_str:
             try:
                 weekday = datetime.strptime(date_str, "%Y-%m-%d").weekday()
-                if weekday < 5:
-                    matched = _match_time("평일")
-                    if matched:
-                        return matched
-                else:
-                    matched = _match_time("주말")
-                    if matched:
-                        return matched
-            except ValueError:
-                pass
+            except ValueError as exc:
+                raise ValueError(f"Invalid date_str format: {date_str}") from exc
+
+            label = "평일" if weekday < 5 else "주말"
+            matched = _match_time(label)
+
+            if matched:
+                return matched
 
         matched = _match_time("평일") or _match_time("주말")
         if matched:
             return matched
-        if "10:00-22:00" in text:
-            return {"start": "10:00", "end": "22:00"}
-        if "10:00-21:00" in text:
-            return {"start": "10:00", "end": "21:00"}
-        return {"start": "10:00", "end": "22:00"}
+
+        # "평일", "주말" 언급이 없는 데이터에 대해서도 처리 가능
+        plain_match = re.search(r"(\d{1,2}:\d{2})-(\d{1,2}:\d{2})", text)
+        if plain_match:
+            return {"start": plain_match.group(1), "end": plain_match.group(2)}
+
+        raise ValueError(f"Could not parse business hours from: {business_hour_text}")
 
     @classmethod
     def _normalize_booked_slots(cls, booked: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Normalize reserve_time for use by the policy engine."""
         normalized = []
         for item in booked:
             reserve_time = item.get("reserve_time") or item.get("reserveTime") or ""
             duration = item.get("duration_min") or item.get("durationMin") or item.get("estimated_duration_min")
             if reserve_time and "-" in reserve_time:
-                start, end = reserve_time.split("-", 1)
+                start, end = [part.strip() for part in reserve_time.split("-", 1)]
                 normalized.append({"start": start, "end": end, "duration_min": duration or 0})
                 continue
 
