@@ -1,6 +1,6 @@
 import re
 
-from agent.graph.state import ReservationState
+from agent.graph.state import ReservationState, merge_slots
 from agent.agents.intake_agent import IntakeAgent
 from agent.tools.backend_client import BackendClient
 from agent.tools.policy_engine import PolicyEngine
@@ -40,52 +40,14 @@ def build_non_booking_response(intent: str) -> str:
     return responses.get(intent, UNKNOWN_FALLBACK_MESSAGE)
 
 
-def _extract_search_terms(state: ReservationState):
-    slots = state.get("slots")
-    name = getattr(slots, "name", None) if slots else None
-    reserve_date = getattr(slots, "reserve_date", None) if slots else None
-    reserve_time = getattr(slots, "reserve_time", None) if slots else None
-    service = None
-    if slots and getattr(slots, "service_code", None):
-        service_map = {
-            "GEL_BASIC": "기본네일",
-            "GEL_NAIL": "젤네일",
-            "PEDICURE": "페디큐어",
-        }
-        service = service_map.get(slots.service_code, slots.service_code)
-
-    user_input = str(state.get("user_input") or "").strip()
-    if user_input:
-        if not name:
-            name_match = re.search(
-                r"^([가-힣]{2,4})\s+(?:\d{4}-\d{2}-\d{2}|01\d-\d{3,4}-\d{4}|\d{1,2}:\d{2})",
-                user_input,
-            )
-            if not name_match:
-                name_match = re.search(r"(?:성함|이름|예약자)\s*[:：]?\s*([가-힣]{2,4})", user_input)
-            if name_match:
-                name = name_match.group(1)
-
-        if not reserve_date:
-            date_match = re.search(r"(\d{4}-\d{2}-\d{2})", user_input)
-            if date_match:
-                reserve_date = date_match.group(1)
-
-        if not reserve_time:
-            time_match = re.search(r"(\d{1,2}:\d{2})", user_input)
-            if time_match:
-                reserve_time = time_match.group(1)
-
-        if not service:
-            normalized = user_input.replace(" ", "")
-            if any(keyword in normalized for keyword in ("페디큐어", "페디")):
-                service = "페디큐어"
-            elif any(keyword in normalized for keyword in ("기본네일", "기본케어", "손톱케어", "케어")):
-                service = "기본네일"
-            elif "젤" in normalized:
-                service = "젤네일"
-
-    return name, reserve_date, reserve_time, service
+def _get_service_display_name(service_code: str) -> str:
+    """Helper to map service code to Korean name for searching."""
+    service_map = {
+        "GEL_BASIC": "기본네일",
+        "GEL_NAIL": "젤네일",
+        "PEDICURE": "페디큐어",
+    }
+    return service_map.get(service_code, service_code)
 
 
 def _candidate_summary_lines(candidates: list[dict]) -> str:
@@ -102,11 +64,11 @@ def _extract_backend_status(reservation_result: dict) -> str:
     return "HTTP 상태 미상"
 
 def intake_node(state: ReservationState):
-    """Analyzes user input and extracts information"""
+    """Analyzes user input and extracts information with multi-turn memory."""
     print("--- [NODE] Intake Agent ---")
     user_input = state["user_input"].strip()
     
-    # Empty input cannot be classified by the Intake Agent.
+    # 1. Handle empty input
     if not user_input:
         return {
             "intent": "greeting",
@@ -118,32 +80,53 @@ def intake_node(state: ReservationState):
             "response_draft": WELCOME_MESSAGE,
         }
 
+    # 2. Extract from current input
     result = intake_agent.run(user_input)
     intent = _intent_to_str(result.intent)
-    missing_fields = result.missing_fields
+    
+    # 3. Merge with existing slots (Multi-turn Memory Fix)
+    existing_slots = state.get("slots")
+    merged_slots = merge_slots(existing_slots, result.slots)
+    
+    # 4. Recalculate missing fields based on merged data
+    required_fields = ["name", "phone_num", "off_removal", "reserve_date", "reserve_time", "service_code", "past_visit"]
+    missing_fields = [f for f in required_fields if getattr(merged_slots, f, None) is None]
     missing_count = len(missing_fields)
     
-    # v1: booking 외 intent에 대한 전용 노드가 없으므로 response_node에서 fallback 응답을 생성
-    # v2: change/cancel/payment 노드를 추가하면 router.py에서 해당 노드로 라우팅
+    # v1: Only booking intent gets detailed slot handling.
     if intent != "booking":
         return {
-            "intent": intent, "slots": result.slots, "missing_fields": [],
-            "is_bookable": False, "booking_status": "N/A",
-            "next_action": "respond_only", "response_draft": "",
+            "intent": intent, 
+            "slots": merged_slots, 
+            "missing_fields": [],
+            "is_bookable": False, 
+            "booking_status": "N/A",
+            "next_action": "respond_only", 
+            "response_draft": "",
         }
 
     if missing_count >= 3:
         return {
-            "intent": "booking", "slots": result.slots, "missing_fields": missing_fields,
-            "is_bookable": False, "booking_status": "N/A", 
-            "next_action": "ask_followup", "response_draft": BOOKING_FORM_GUIDE
+            "intent": "booking", 
+            "slots": merged_slots, 
+            "missing_fields": missing_fields,
+            "is_bookable": False, 
+            "booking_status": "N/A", 
+            "next_action": "ask_followup", 
+            "response_draft": BOOKING_FORM_GUIDE
         }
     
+    # Use the LLM's suggested followup if present, otherwise build one
+    response_draft = result.followup_question if (result.need_followup and result.followup_question) else ""
+    
     return {
-        "intent": "booking", "slots": result.slots, "missing_fields": missing_fields,
-        "is_bookable": False, "booking_status": "N/A", 
-        "next_action": "ask_followup" if result.need_followup else "validate_booking",
-        "response_draft": result.followup_question if result.need_followup else ""
+        "intent": "booking", 
+        "slots": merged_slots, 
+        "missing_fields": missing_fields,
+        "is_bookable": False, 
+        "booking_status": "N/A", 
+        "next_action": "ask_followup" if missing_count > 0 else "validate_booking",
+        "response_draft": response_draft
     }
 
 def booking_node(state: ReservationState):
@@ -254,7 +237,7 @@ def booking_node(state: ReservationState):
 
 
 def change_node(state: ReservationState):
-    """Handle reservation change requests with lookup and owner-review fallback."""
+    """Handle reservation change requests using shared slots."""
     print("--- [NODE] Change Node ---")
 
     intent = _intent_to_str(state.get("intent", ""))
@@ -265,7 +248,12 @@ def change_node(state: ReservationState):
             "response_draft": build_non_booking_response(intent),
         }
 
-    name, reserve_date, reserve_time, service = _extract_search_terms(state)
+    slots = state.get("slots")
+    name = slots.name if slots else None
+    reserve_date = slots.reserve_date if slots else None
+    reserve_time = slots.reserve_time if slots else None
+    service = _get_service_display_name(slots.service_code) if slots and slots.service_code else None
+
     candidates = backend_client.find_reservations(
         name=name,
         reserve_date=reserve_date,
@@ -303,7 +291,7 @@ def change_node(state: ReservationState):
 
 
 def cancel_node(state: ReservationState):
-    """Handle reservation cancel requests with lookup and owner-review fallback."""
+    """Handle reservation cancel requests using shared slots."""
     print("--- [NODE] Cancel Node ---")
 
     intent = _intent_to_str(state.get("intent", ""))
@@ -314,7 +302,12 @@ def cancel_node(state: ReservationState):
             "response_draft": build_non_booking_response(intent),
         }
 
-    name, reserve_date, reserve_time, service = _extract_search_terms(state)
+    slots = state.get("slots")
+    name = slots.name if slots else None
+    reserve_date = slots.reserve_date if slots else None
+    reserve_time = slots.reserve_time if slots else None
+    service = _get_service_display_name(slots.service_code) if slots and slots.service_code else None
+
     candidates = backend_client.find_reservations(
         name=name,
         reserve_date=reserve_date,
@@ -349,7 +342,7 @@ def cancel_node(state: ReservationState):
 
 
 def payment_node(state: ReservationState):
-    """Handle deposit/payment confirmations with reservation lookup."""
+    """Handle deposit/payment confirmations using shared slots."""
     print("--- [NODE] Payment Node ---")
 
     intent = _intent_to_str(state.get("intent", ""))
@@ -360,7 +353,12 @@ def payment_node(state: ReservationState):
             "response_draft": build_non_booking_response(intent),
         }
 
-    name, reserve_date, reserve_time, service = _extract_search_terms(state)
+    slots = state.get("slots")
+    name = slots.name if slots else None
+    reserve_date = slots.reserve_date if slots else None
+    reserve_time = slots.reserve_time if slots else None
+    service = _get_service_display_name(slots.service_code) if slots and slots.service_code else None
+
     candidates = backend_client.find_reservations(
         name=name,
         reserve_date=reserve_date,

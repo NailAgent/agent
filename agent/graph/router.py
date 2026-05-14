@@ -20,10 +20,13 @@ def route_after_intake(state: ReservationState):
     if intent not in {"booking", "greeting", "inquiry", "unknown"}:
         return "response"
 
-    if state.get("missing_fields") and len(state["missing_fields"]) > 0:
-        return "response"
+    if intent == "booking":
+        if state.get("missing_fields") and len(state["missing_fields"]) > 0:
+            return "response" 
+        else:
+            return "booking"
 
-    return "booking"
+    return "response"
 
 def route_after_booking(state: ReservationState):
     """Booking node decides where to go next."""
