@@ -35,7 +35,7 @@ FEW_SHOT_EXAMPLES = """
    -> name: 홍길동
    -> phone_num: 010-1111-2222
    -> off_removal: False
-   -> reserve_date: 2026-05-14
+   -> reserve_date: 2026-06-01
    -> reserve_time: 15:00
    -> service_code: GEL_NAIL
    -> past_visit: False

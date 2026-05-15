@@ -1,0 +1,17 @@
+{
+  "status": 200,
+  "data": {
+    "date": "2026-05-07",
+    "business_hour": "평일: 10:00-21:00\n주말: 10:00-22:00",
+    "booked_schedules": [
+      {
+        "reserve_time": "11:00-12:30",
+        "duration_min": 90
+      },
+      {
+        "reserve_time": "14:00-15:00",
+        "duration_min": 60
+      }
+    ]
+  }
+}
