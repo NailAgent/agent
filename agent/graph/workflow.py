@@ -15,10 +15,10 @@ from agent.graph.router import route_after_intake
 def create_workflow():
     """LangGraph workflow assembly"""
 
-    # 1. Initialize graph
+    # 1. 워크플로우(그래프) 생성
     workflow = StateGraph(ReservationState)
 
-    # 2. Add nodes
+    # 2. 노드(작업자) 배치
     workflow.add_node("intake", intake_node)
     workflow.add_node("booking", booking_node)
     workflow.add_node("change", change_node)
@@ -29,6 +29,7 @@ def create_workflow():
     # 3. Connect edges (Define flow)
     workflow.set_entry_point("intake")
 
+    # 4. Conditional Edge 연결
     # Conditional routing after intake
     workflow.add_conditional_edges(
         "intake",
@@ -42,6 +43,7 @@ def create_workflow():
         }
     )
 
+    # 3. Edge 연결
     # Move to response after booking
     workflow.add_edge("booking", "response")
     workflow.add_edge("change", "response")
@@ -51,7 +53,7 @@ def create_workflow():
     # End after response
     workflow.add_edge("response", END)
 
-    # 4. Compile
+    # 4. Compile (최종 에이전트 생성)
     return workflow.compile()
 
 # Executable app instance

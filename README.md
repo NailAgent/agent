@@ -206,7 +206,7 @@ flowchart LR
 
 | Layer | Technology | Role |
 |---|---|---|
-| LLM | Upstage Solar LLM / OpenAI-compatible LLM | 자연어 이해 및 응답 생성 |
+| LLM | OpenAI GPT-4o (현재) / OpenAI-compatible LLM (예정) | 자연어 이해 및 응답 생성 |
 | Agent Orchestration | LangGraph | 핵심 stateful multi-agent orchestration |
 | LLM App / Prompt Layer | LangChain (optional helper layer) | tool binding / structured output helper |
 | API / Backend Interface | FastAPI | ingress / tool API / service gateway |

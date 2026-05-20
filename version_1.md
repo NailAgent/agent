@@ -6,18 +6,31 @@
 
 ## 2. Directory Structure
 ```
-agent/
-├── graph/               # LangGraph Orchestration Layer
-│   ├── state.py         # Shared State Definition
-│   ├── nodes.py         # Workflow Step Execution Nodes
-│   ├── router.py        # Node Transition Routing Logic
-│   └── workflow.py      # Complete Graph Assembly
-├── agents/              # Intelligent Agent Layer (LLM-based)
-│   ├── schema.py        # Data Structure Definitions (Pydantic Models)
-│   └── intake_agent.py  # Input Analysis and Information Extraction Agent
-├── tools/               # Deterministic Tools and Business Logic Layer
-│   └── policy_engine.py # Business Policy and Rule Validation Engine
-└── tests/               # Unit and Integration Test Scripts
+agent_project/
+├── agent/
+│   ├── graph/               # LangGraph Orchestration Layer
+│   │   ├── state.py         # Shared State Definition
+│   │   ├── nodes.py         # Workflow Step Execution Nodes
+│   │   ├── router.py        # Node Transition Routing Logic
+│   │   └── workflow.py      # Complete Graph Assembly
+│   ├── agents/              # Intelligent Agent Layer (LLM-based)
+│   │   ├── schema.py        # Data Structure Definitions (Pydantic Models)
+│   │   ├── constants.py     # Fixed message strings
+│   │   └── intake_agent.py  # Input Analysis and Information Extraction Agent
+│   ├── tools/               # Deterministic Tools and Business Logic Layer
+│   │   ├── backend_client.py       # Backend API client
+│   │   ├── backend_errors.py       # Error response helpers
+│   │   ├── backend_normalizers.py  # API response normalizers
+│   │   ├── mock_loader.py          # Mock data loader for offline testing
+│   │   └── policy_engine.py        # Business Policy and Rule Validation Engine
+│   └── data/
+│       └── mock_backend/    # Mock API response JSON fixtures
+└── tests/                   # Test scripts (project root)
+    ├── test_v1.py
+    ├── test_v1_additional.py
+    ├── live_backend_client_smoke.py
+    ├── live_workflow_booking_smoke.py
+    └── mock_backend_booking_flow.py
 ```
 
 ## 3. Core Component Analysis
@@ -52,6 +65,9 @@ agent/
 - **Nodes**: 각 단계별 독립적인 실행 단위
   - `intake_node`: LLM을 통한 입력 분석
   - `booking_node`: Policy Engine 연동 및 예약 가능 여부 판정
+  - `change_node`: 예약 변경 요청 처리
+  - `cancel_node`: 예약 취소 요청 처리
+  - `payment_node`: 입금 확인 요청 처리
   - `response_node`: 최종 메시지 작성
 - **Edges & Router**: 노드 간의 이동 경로 및 조건부 분기 정의
   - 정보 부족 시 `response_node`로 직행하여 질문 투척
@@ -183,10 +199,12 @@ Version 1에서 agent가 실제로 백엔드와 만나는 지점은 두 곳입�
 
 ### 11.1 Agent 테스트 실행
 ```bash
-conda activate agent
-cd /home/sallysooo/Desktop/Nailgent
-python agent/tests/test_v1.py
-python agent/tests/test_v1_additional.py
+# 가상환경 활성화 (.venv 또는 conda)
+source .venv/bin/activate  # 또는 conda activate agent
+
+# 프로젝트 루트(agent_project/)에서 실행
+python tests/test_v1.py
+python tests/test_v1_additional.py
 ```
 
 ### 11.2 Backend와 함께 실행하기
