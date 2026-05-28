@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 
 from agent.graph.state import ReservationState, merge_slots
 from agent.agents.intake_agent import IntakeAgent
+from agent.agents.schema import BookingSlots
 from agent.tools.backend_client import BackendClient
 from agent.tools.policy_engine import PolicyEngine
 from agent.agents.constants import (
