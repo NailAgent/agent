@@ -8,6 +8,8 @@
     "deposit_amount": 5000,
     "account_number": "우리은행 1002-061-241977",
     "policy_text": "영업시간: 10:00-22:00 / 매주 월요일 정기휴무 / 예약금 5000원",
-    "booking_message_text": "안녕하세요 고객님, 해당 시간 예약이 가능합니다!"
+    "booking_message_text": "안녕하세요 고객님, 해당 시간 예약이 가능합니다!",
+    "services_price": "{\"젤네일\": 50000, \"기본네일\": 30000, \"페디큐어\": 40000}",
+    "service_durations": "젤네일 60분 / 기본네일 45분 / 페디큐어 60분"
   }
 }

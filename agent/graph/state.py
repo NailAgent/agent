@@ -26,6 +26,8 @@ class ReservationState(TypedDict):
     intent: str
     slots: BookingSlots
     missing_fields: List[str]
+    kakao_user_id: str
+    plusfriend_user_key: str
     
     # Decisions
     is_bookable: bool

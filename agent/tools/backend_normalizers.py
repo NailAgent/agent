@@ -17,6 +17,9 @@ def normalize_shop_info(
     if not isinstance(data, dict):
         data = {}
 
+    services_price = data.get("services_price") or data.get("servicesPrice") or data.get("services_json")
+    service_durations = data.get("service_durations") or data.get("serviceDurations")
+
     return {
         "success": True,
         "source": source,
@@ -24,7 +27,9 @@ def normalize_shop_info(
         "business_hour": data.get("business_hour"),
         "closed_days": data.get("closed_days"),
         "booking_form_text": data.get("booking_form_text"),
-        "services_json": data.get("services_json"),
+        "services_price": services_price,
+        "services_json": services_price,
+        "service_durations": service_durations,
         "deposit_amount": data.get("deposit_amount"),
         "account_number": data.get("account_number"),
         "policy_text": data.get("policy_text"),
@@ -200,3 +205,25 @@ def format_reserve_time(reserve_time: Optional[str], estimated_duration_min: int
         return f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}"
     except ValueError:
         return reserve_time
+
+
+def normalize_kakao_customer(
+    payload: dict[str, Any],
+    *,
+    source: str,
+    status_code: int | None = None,
+) -> dict[str, Any]:
+    data = payload.get("data", payload)
+    if not isinstance(data, dict):
+        data = {}
+
+    return {
+        "success": True,
+        "source": source,
+        "status_code": status_code,
+        "is_existing": data.get("is_existing") or data.get("isExisting"),
+        "kakao_user_id": data.get("kakao_user_id") or data.get("kakaoUserId"),
+        "plusfriend_user_key": data.get("plusfriend_user_key") or data.get("plusfriendUserKey"),
+        "name": data.get("name"),
+        "phone_num": data.get("phone_num") or data.get("phoneNum"),
+    }
