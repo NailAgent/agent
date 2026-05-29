@@ -1,4 +1,5 @@
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import InMemorySaver
 
 from agent.graph.state import ReservationState
 from agent.graph.nodes import (
@@ -54,7 +55,7 @@ def create_workflow():
     workflow.add_edge("response", END)
 
     # 4. Compile (최종 에이전트 생성)
-    return workflow.compile()
+    return workflow.compile(checkpointer=InMemorySaver())
 
 # Executable app instance
 app = create_workflow()

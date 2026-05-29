@@ -199,7 +199,6 @@ class BackendClient:
             )
 
     @classmethod
-    @classmethod
     def lookup_kakao_customer(
         cls,
         kakao_user_id: str,
@@ -262,6 +261,7 @@ class BackendClient:
                 next_action="retry_or_human_review",
             )
 
+    @classmethod
     def find_reservations(
         cls,
         name: Optional[str] = None,

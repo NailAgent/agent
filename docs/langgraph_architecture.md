@@ -192,9 +192,9 @@ Intake Agent 는 `BookingSlots` 에 다음 값을 채웁니다.
 - [nodes.py](/home/sallysooo/Desktop/Nailgent/agent/agent/graph/nodes.py#L265)
 
 역할:
-- 기존 예약 변경 후보를 찾는다.
+- name 없으면 즉시 성함 요청 followup 반환.
 - `find_reservations()` 로 고객/일자/시간/시술로 매칭한다.
-- 자동 변경 API 는 아직 없어서, 현재는 사장님 확인 흐름으로 보낸다.
+- 매칭된 예약을 `PATCH /api/v1/bookings/{id}` 로 실제 변경한다.
 
 업데이트하는 key:
 - `booking_status`
@@ -203,16 +203,20 @@ Intake Agent 는 `BookingSlots` 에 다음 값을 채웁니다.
 - `policy_check_results`
 
 상태 흐름:
+- name 없음: 성함 요청 `ask_followup`
 - 매칭 예약 없음: `ask_followup`
-- 매칭 예약 있음: `pending_review`, `notify_owner`
+- 새 일정 미제공: `pending_review`
+- 변경 성공: `booking_status="updated"`
+- 변경 실패: `booking_status="backend_error"`
 
 ### 5.4 `cancel_node`
 파일:
-- [nodes.py](/home/sallysooo/Desktop/Nailgent/agent/agent/graph/nodes.py#L319)
+- [nodes.py](agent/graph/nodes.py)
 
 역할:
-- 기존 예약 취소 후보를 찾는다.
-- 자동 취소 API 는 아직 없어서, 사장님 확인 흐름으로 보낸다.
+- name 없으면 즉시 성함 요청 followup 반환.
+- `find_reservations()` 로 취소 대상 예약을 찾는다.
+- `DELETE /api/v1/bookings/{id}` 로 실제 취소한다.
 
 업데이트하는 key:
 - `booking_status`
@@ -221,26 +225,29 @@ Intake Agent 는 `BookingSlots` 에 다음 값을 채웁니다.
 - `policy_check_results`
 
 상태 흐름:
+- name 없음: 성함 요청 `ask_followup`
 - 매칭 예약 없음: `ask_followup`
-- 매칭 예약 있음: `pending_review`, `notify_owner`
+- 취소 성공: `booking_status="cancelled"`
+- 취소 실패: `booking_status="backend_error"`
 
 ### 5.5 `payment_node`
 파일:
-- [nodes.py](/home/sallysooo/Desktop/Nailgent/agent/agent/graph/nodes.py#L370)
+- [nodes.py](agent/graph/nodes.py)
 
 역할:
-- 입금/결제 확인 후보 예약을 찾는다.
-- 현재는 자동 입금 검증 API 가 준비 중이므로 사장님 확인으로 보낸다.
+- name 없으면 즉시 성함 요청 followup 반환.
+- `GET /api/v1/bookings` 로 전체 예약 조회 후 이름으로 필터.
+- 가장 최근 예약의 `payment_status == "PAID"` 여부로 고정 메시지 반환.
 
 업데이트하는 key:
 - `booking_status`
 - `next_action`
 - `response_draft`
-- `policy_check_results`
 
 상태 흐름:
-- 매칭 예약 없음: `ask_followup`
-- 매칭 예약 있음: `pending_review`, `notify_owner`
+- name 없음: 성함 요청 `ask_followup`
+- 결제 확인: `booking_status="payment_confirmed"`, "✅ 결제가 확인되었습니다!"
+- 미결제: `booking_status="pending_payment"`, "⚠️ 아직 결제가 확인되지 않았습니다."
 
 ### 5.6 `response_node`
 파일:
@@ -466,7 +473,8 @@ flowchart TD
 
 - **Intake Agent** 는 `name`, `phone_num`, `off_removal`, `reserve_date`, `reserve_time`, `service_code`, `past_visit` 를 수집합니다.
 - **Booking** 은 shop info + schedule + policy engine + reservation create 까지 담당합니다.
-- **Change / Cancel / Payment** 는 아직 자동 처리보다 후보 조회 + 사장님 확인 메시지 생성에 가깝습니다.
+- **Change / Cancel** 는 백엔드 PATCH/DELETE API 를 호출해 실제 변경/취소를 처리합니다. name 없으면 성함부터 요청합니다.
+- **Payment** 는 `GET /api/v1/bookings` 로 결제 상태를 조회해 고정 메시지를 반환합니다. Toss 웹훅 연동 시 자동화 예정입니다.
 - **Policy engine** 은 영업시간, 휴무일, 시간 충돌, 대체 시간 추천을 맡습니다.
 - **실제 branching 은 intake 후 1회** 만 있습니다.
 - **핵심 상태 키** 는 `intent`, `slots`, `missing_fields`, `booking_status`, `next_action`, `policy_check_results`, `response_draft` 입니다.
