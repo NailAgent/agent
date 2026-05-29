@@ -14,9 +14,6 @@ class BookingSlots(BaseModel):
     reserve_time: Optional[str] = Field(None, description="The requested reservation time (HH:MM)")
     service_code: Optional[str] = Field(None, description="The type of service (e.g., GEL_BASIC, GEL_NAIL, PEDICURE)")
     past_visit: Optional[bool] = Field(None, description="Whether the customer has visited before (O/X)")
-    kakao_user_id: Optional[str] = Field(None, description="Kakao user identifier passed from the channel/webhook")
-    plusfriend_user_key: Optional[str] = Field(None, description="Kakao plusfriend user key passed from the channel/webhook")
-
 
 class Intent(str, Enum):
     """Allowed intent labels returned by the Intake Agent."""
