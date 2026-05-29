@@ -767,7 +767,7 @@ def cancel_node(state: ReservationState):
     }
 
 def payment_node(state: ReservationState):
-    """입금 확인 및 환불 요청을 처리하고 백엔드 결제 상태를 업데이트."""
+    """예약금 결제 여부를 조회하고 고정 메시지로 안내."""
     print("--- [NODE] Payment Node ---")
 
     intent = _intent_to_str(state.get("intent", ""))
@@ -778,133 +778,38 @@ def payment_node(state: ReservationState):
             "response_draft": build_non_booking_response(intent),
         }
 
-    user_input = state.get("user_input", "")
     slots = state.get("slots")
     slots, customer_lookup = _enrich_slots_with_customer(slots, state)
-    name = (slots.name if slots else None) or _extract_name_hint(user_input)
-    phone_num = (slots.phone_num if slots else None) or _extract_phone_hint(user_input)
-    reserve_date = (slots.reserve_date if slots else None) or (_extract_date_tokens(user_input)[0] if _extract_date_tokens(user_input) else None)
-    reserve_time = (slots.reserve_time if slots else None) or (_extract_time_tokens(user_input)[0] if _extract_time_tokens(user_input) else None)
-    service = _get_service_display_name(slots.service_code) if slots and slots.service_code else _extract_service_display_from_text(user_input)
-    is_refund_request = _is_refund_request(user_input)
+    name = (slots.name if slots else None) or customer_lookup.get("name")
 
-    candidates = backend_client.find_reservations(
-        name=name,
-        phone_num=phone_num,
-        reserve_date=reserve_date,
-        reserve_time=reserve_time,
-        service=service,
-        visit_status=None if is_refund_request else "PENDING",
-        payment_status="PAID" if is_refund_request else "PENDING",
-    )
-    matched = _unique_or_none(candidates)
-
-    if matched is None:
-        if not candidates:
-            return {
-                "booking_status": "N/A",
-                "next_action": "ask_followup",
-                "response_draft": _build_payment_followup(),
-                "policy_check_results": {"matched_reservations": []},
-            }
-
+    if not name:
         return {
             "booking_status": "N/A",
             "next_action": "ask_followup",
-            "response_draft": (
-                f"{PAYMENT_MESSAGE.strip()}\n"
-                "대상 예약이 여러 건 검색되어 하나로 특정할 수 없습니다.\n"
-                "예약자 성함과 예약 날짜/시간을 더 정확히 알려주세요."
-            ),
-            "policy_check_results": {"matched_reservations": candidates},
+            "response_draft": "결제 확인을 위해 예약하실 때 사용하신 성함을 알려주세요.",
         }
 
-    if is_refund_request:
-        refund_result = backend_client.refund_payment(int(matched["id"]))
-        if not refund_result.get("success", True):
-            return {
-                "booking_status": "backend_error",
-                "next_action": refund_result.get("next_action", "human_review"),
-                "response_draft": "환불 처리 중 오류가 발생했어요. 잠시 후 다시 시도하거나 사장님 확인이 필요합니다.",
-                "policy_check_results": {
-                    "matched_reservation": matched,
-                    "refund_result": refund_result,
-                },
-            }
+    # 이름으로 예약 목록 조회 후 가장 최근 예약의 결제 상태 확인
+    snapshot = backend_client.list_reservations()
+    bookings = snapshot.get("bookings", [])
+    my_bookings = [b for b in bookings if b.get("name") == name]
+    my_bookings.sort(key=lambda b: b.get("reserve_date", ""), reverse=True)
+    my_booking = my_bookings[0] if my_bookings else None
 
-        response = (
-            f"{PAYMENT_MESSAGE.strip()}\n"
-            "환불 처리 완료되었습니다.\n"
-            f"- 예약자: {matched.get('name')}\n"
-            f"- 예약 ID: {matched.get('id')}\n"
-            f"- 처리 상태: {'backend' if refund_result.get('source') == 'backend' else 'mock'}"
-        )
+    is_paid = my_booking and my_booking.get("payment_status") == "PAID"
+
+    if is_paid:
         return {
-            "booking_status": "payment_refunded",
+            "booking_status": "payment_confirmed",
             "next_action": "notify_success",
-            "response_draft": response,
-            "policy_check_results": {
-                "matched_reservation": matched,
-                "refund_result": refund_result,
-            },
+            "response_draft": "✅ 결제가 확인되었습니다!\n예약이 완료되었어요 :)",
         }
-
-    payment_key = _extract_payment_key(user_input)
-    amount = _extract_amount_from_text(user_input)
-    if amount is None:
-        amount = backend_client.get_shop_info().get("deposit_amount")
-
-    if not payment_key:
+    else:
         return {
-            "booking_status": "pending_review",
-            "next_action": "ask_followup",
-            "response_draft": (
-                f"{PAYMENT_MESSAGE.strip()}\n"
-                "입금 확인 대상 예약을 찾았습니다.\n"
-                f"{_candidate_summary_lines([matched])}\n"
-                "현재 메시지에는 결제 키가 없어 자동 결제 확정은 아직 못했어요.\n"
-                "입금자명, 예약자 성함, 입금 금액, 결제 키가 있다면 함께 알려주세요."
-            ),
-            "policy_check_results": {
-                "matched_reservation": matched,
-                "matched_reservations": candidates,
-            },
+            "booking_status": "pending_payment",
+            "next_action": "notify_failure",
+            "response_draft": "⚠️ 아직 결제가 확인되지 않았습니다.\n잠시 후 다시 시도해주세요.",
         }
-
-    payment_payload = {
-        "payment_status": "PAID",
-        "payment_key": payment_key,
-        "amount": amount,
-    }
-    update_result = backend_client.update_payment(int(matched["id"]), payment_payload)
-    if not update_result.get("success", True):
-        return {
-            "booking_status": "backend_error",
-            "next_action": update_result.get("next_action", "human_review"),
-            "response_draft": "결제 상태 반영 중 오류가 발생했어요. 잠시 후 다시 시도하거나 사장님 확인이 필요합니다.",
-            "policy_check_results": {
-                "matched_reservation": matched,
-                "update_result": update_result,
-            },
-        }
-
-    response = (
-        f"{PAYMENT_MESSAGE.strip()}\n"
-        "입금 확인이 완료되었습니다.\n"
-        f"- 예약자: {matched.get('name')}\n"
-        f"- 예약 ID: {matched.get('id')}\n"
-        f"- 결제 금액: {amount}원\n"
-        f"- 처리 상태: {'backend' if update_result.get('source') == 'backend' else 'mock'}"
-    )
-    return {
-        "booking_status": "payment_confirmed",
-        "next_action": "notify_success",
-        "response_draft": response,
-        "policy_check_results": {
-            "matched_reservation": matched,
-            "update_result": update_result,
-        },
-    }
 
 def response_node(state: ReservationState):
     """response_draft가 없으면 intent별 기본 응답으로 채워 최종 응답을 확정."""
