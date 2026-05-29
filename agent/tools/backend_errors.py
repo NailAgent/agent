@@ -91,3 +91,25 @@ def reservation_list_error(
         "total_pages": 0,
         "bookings": [],
     }
+
+
+def customer_error(
+    *,
+    status_code: int | None = None,
+    error_code: str = "BACKEND_UNAVAILABLE",
+    message: str = "카카오 고객 정보를 불러올 수 없습니다.",
+    error: str | None = None,
+    response: dict[str, Any] | None = None,
+    next_action: str = "human_review",
+) -> dict[str, Any]:
+    return {
+        "success": False,
+        "source": "backend_error",
+        "status_code": status_code,
+        "error_code": error_code,
+        "message": message,
+        "error": error,
+        "response": response,
+        "next_action": next_action,
+        "data": None,
+    }
