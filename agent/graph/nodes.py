@@ -1,16 +1,18 @@
 import re
+from datetime import datetime, timedelta
 
 from agent.graph.state import ReservationState, merge_slots
 from agent.agents.intake_agent import IntakeAgent
+from agent.agents.schema import BookingSlots
 from agent.tools.backend_client import BackendClient
 from agent.tools.policy_engine import PolicyEngine
 from agent.agents.constants import (
     BOOKING_FORM_GUIDE,
-    CANCEL_FALLBACK_MESSAGE,
-    CHANGE_FALLBACK_MESSAGE,
+    CANCEL_MESSAGE,
+    CHANGE_MESSAGE,
     INQUIRY_FALLBACK_MESSAGE,
     BOOKING_MISSING_DATETIME_MESSAGE,
-    PAYMENT_FALLBACK_MESSAGE,
+    PAYMENT_MESSAGE,
     UNKNOWN_FALLBACK_MESSAGE,
     WELCOME_MESSAGE,
 )
@@ -31,9 +33,9 @@ def build_non_booking_response(intent: str) -> str:
     responses = {
         "greeting": WELCOME_MESSAGE,
         "inquiry": INQUIRY_FALLBACK_MESSAGE,
-        "change": CHANGE_FALLBACK_MESSAGE,
-        "cancel": CANCEL_FALLBACK_MESSAGE,
-        "payment": PAYMENT_FALLBACK_MESSAGE,
+        "change": CHANGE_MESSAGE,
+        "cancel": CANCEL_MESSAGE,
+        "payment": PAYMENT_MESSAGE,
         "unknown": UNKNOWN_FALLBACK_MESSAGE,
     }
 
@@ -63,6 +65,200 @@ def _extract_backend_status(reservation_result: dict) -> str:
         return f"HTTP {status}"
     return "HTTP 상태 미상"
 
+
+def _resolve_shop_text(shop_info: dict, key: str, fallback: str) -> str:
+    value = shop_info.get(key)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return fallback
+
+
+
+_RELATIVE_DATE_OFFSETS = {
+    "오늘": 0,
+    "내일": 1,
+    "모레": 2,
+}
+
+
+def _service_code_from_display_name(service_name: str | None) -> str | None:
+    if not service_name:
+        return None
+
+    normalized = service_name.replace(" ", "")
+    service_map = {
+        "기본네일": "GEL_BASIC",
+        "기본케어": "GEL_BASIC",
+        "손톱케어": "GEL_BASIC",
+        "젤네일": "GEL_NAIL",
+        "페디큐어": "PEDICURE",
+        "페디": "PEDICURE",
+    }
+    for keyword, code in service_map.items():
+        if keyword in normalized:
+            return code
+    return None
+
+
+def _resolve_relative_date_token(token: str) -> str:
+    if token in _RELATIVE_DATE_OFFSETS:
+        return (datetime.now().date() + timedelta(days=_RELATIVE_DATE_OFFSETS[token])).strftime("%Y-%m-%d")
+    return token
+
+
+def _extract_date_tokens(text: str) -> list[str]:
+    normalized = text.replace(" ", "")
+    tokens: list[str] = []
+    for match in re.finditer(r"\d{4}-\d{2}-\d{2}|오늘|내일|모레", normalized):
+        tokens.append(_resolve_relative_date_token(match.group(0)))
+    return tokens
+
+
+def _extract_time_tokens(text: str) -> list[str]:
+    normalized = text.replace(" ", "")
+    tokens: list[str] = []
+
+    for match in re.finditer(r"(오전|오후)?(\d{1,2})시", normalized):
+        meridiem, hour = match.groups()
+        hour_int = int(hour)
+        if meridiem == "오후" and hour_int < 12:
+            hour_int += 12
+        if meridiem == "오전" and hour_int == 12:
+            hour_int = 0
+        tokens.append(f"{hour_int:02d}:00")
+
+    for match in re.finditer(r"(\d{1,2}):(\d{2})", normalized):
+        hour, minute = match.groups()
+        tokens.append(f"{int(hour):02d}:{int(minute):02d}")
+
+    deduped: list[str] = []
+    for token in tokens:
+        if token not in deduped:
+            deduped.append(token)
+    return deduped
+
+
+def _extract_payment_key(text: str) -> str | None:
+    pattern = r"(?:payment[_\- ]?key|결제키|paymentkey)\s*[:=]?\s*([A-Za-z0-9_-]{6,})"
+    match = re.search(pattern, text, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def _is_refund_request(text: str) -> bool:
+    normalized = text.replace(" ", "")
+    return any(keyword in normalized for keyword in ("환불", "환급", "취소환불"))
+
+
+def _extract_amount_from_text(text: str) -> int | None:
+    match = re.search(r"(\d[\d,]*)\s*원", text)
+    if not match:
+        return None
+    return int(match.group(1).replace(",", ""))
+
+
+def _extract_name_hint(text: str) -> str | None:
+    patterns = (
+        r"(?:성함|이름|예약자)\s*[:：]?\s*([가-힣]{2,4})",
+        r"^([가-힣]{2,4})\s+(?:\d{4}-\d{2}-\d{2}|01\d-\d{3,4}-\d{4})",
+        r"^([가-힣]{2,4})\s+.*?(?:예약|입금|취소|변경)",
+        r"([가-힣]{2,4})님",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def _extract_phone_hint(text: str) -> str | None:
+    match = re.search(r"(01[016789]-?\d{3,4}-?\d{4})", text)
+    if not match:
+        return None
+    digits = re.sub(r"\D", "", match.group(1))
+    if len(digits) == 11 and digits.startswith("010"):
+        return f"{digits[:3]}-{digits[3:7]}-{digits[7:]}"
+    return match.group(1)
+
+
+def _extract_service_display_from_text(text: str) -> str | None:
+    normalized = text.replace(" ", "")
+    service_map = (
+        ("페디큐어", "페디큐어"),
+        ("페디", "페디큐어"),
+        ("젤네일", "젤네일"),
+        ("기본네일", "기본네일"),
+        ("기본케어", "기본네일"),
+        ("손톱케어", "기본네일"),
+    )
+    for keyword, display_name in service_map:
+        if keyword.replace(" ", "") in normalized:
+            return display_name
+    return None
+
+
+def _build_change_followup() -> str:
+    return (
+        f"{CHANGE_MESSAGE.strip()}\n"
+        "현재 예약과 새 희망 일정이 모두 확인되어야 변경 처리가 가능합니다.\n"
+        "기존 예약 날짜/시간과 새 희망 날짜/시간을 함께 알려주세요."
+    )
+
+
+def _build_cancel_followup() -> str:
+    return (
+        f"{CANCEL_MESSAGE.strip()}\n"
+        "취소 대상 예약을 정확히 찾을 수 있도록 예약 날짜/시간을 함께 알려주세요."
+    )
+
+
+def _build_payment_followup() -> str:
+    return (
+        f"{PAYMENT_MESSAGE.strip()}\n"
+        "입금 확인을 위해 예약자 성함, 예약 날짜, 그리고 가능하다면 결제 키나 거래내역 정보를 함께 알려주세요."
+    )
+
+
+
+def _unique_or_none(items: list[dict]) -> dict | None:
+    if len(items) == 1:
+        return items[0]
+    return None
+
+
+def _resolve_customer_context(state: ReservationState) -> dict:
+    kakao_user_id = state.get("kakao_user_id")
+    plusfriend_user_key = state.get("plusfriend_user_key")
+    if not kakao_user_id:
+        return {}
+
+    lookup = backend_client.lookup_kakao_customer(kakao_user_id, plusfriend_user_key)
+    return lookup if lookup.get("success") else {}
+
+
+def _enrich_slots_with_customer(slots, state: ReservationState):
+    lookup = _resolve_customer_context(state)
+    if not lookup.get("is_existing"):
+        return slots, lookup
+
+    if not slots:
+        slots = BookingSlots()
+
+    updates = {}
+    if not getattr(slots, "name", None) and lookup.get("name"):
+        updates["name"] = lookup.get("name")
+    if not getattr(slots, "phone_num", None) and lookup.get("phone_num"):
+        updates["phone_num"] = lookup.get("phone_num")
+
+    if not updates:
+        return slots, lookup
+
+    if hasattr(slots, "model_copy"):
+        return slots.model_copy(update=updates), lookup
+    return BookingSlots(**{**slots.dict(), **updates}), lookup
+
+
 def intake_node(state: ReservationState):
     """Analyzes user input and extracts information with multi-turn memory."""
     print("--- [NODE] Intake Agent ---")
@@ -87,6 +283,7 @@ def intake_node(state: ReservationState):
     # 3. Merge with existing slots (Multi-turn Memory Fix)
     existing_slots = state.get("slots")
     merged_slots = merge_slots(existing_slots, result.slots)
+    merged_slots, customer_lookup = _enrich_slots_with_customer(merged_slots, state)
     
     # 4. Recalculate missing fields based on merged data
     required_fields = ["name", "phone_num", "off_removal", "reserve_date", "reserve_time", "service_code", "past_visit"]
@@ -106,6 +303,8 @@ def intake_node(state: ReservationState):
         }
 
     if missing_count >= 3:
+        shop_info = backend_client.get_shop_info()
+        booking_form_text = _resolve_shop_text(shop_info, "booking_form_text", BOOKING_FORM_GUIDE)
         return {
             "intent": "booking", 
             "slots": merged_slots, 
@@ -113,7 +312,7 @@ def intake_node(state: ReservationState):
             "is_bookable": False, 
             "booking_status": "N/A", 
             "next_action": "ask_followup", 
-            "response_draft": BOOKING_FORM_GUIDE
+            "response_draft": booking_form_text
         }
     
     # Use the LLM's suggested followup if present, otherwise build one
@@ -128,6 +327,7 @@ def intake_node(state: ReservationState):
         "next_action": "ask_followup" if missing_count > 0 else "validate_booking",
         "response_draft": response_draft
     }
+
 
 def booking_node(state: ReservationState):
     """Backend-integrated node that checks reservation status and calculates available times"""
@@ -144,6 +344,7 @@ def booking_node(state: ReservationState):
         }
 
     slots = state.get("slots")
+    slots, customer_lookup = _enrich_slots_with_customer(slots, state)
 
     if not slots or not slots.reserve_date or not slots.reserve_time:
         return {
@@ -201,11 +402,13 @@ def booking_node(state: ReservationState):
             duration,
             deposit_amount=shop_info["deposit_amount"],
             designer=state.get("designer"),
+            kakao_user_id=state.get("kakao_user_id"),
+            plusfriend_user_key=state.get("plusfriend_user_key"),
         )
         reservation_result = backend_client.create_reservation(reservation_payload)
         reserve_time_range = reservation_payload["reserve_time"]
         backend_status = _extract_backend_status(reservation_result)
-        base_message = shop_info["booking_message_text"].strip()
+        base_message = _resolve_shop_text(shop_info, "booking_message_text", "안녕하세요 고객님, 해당 시간 예약이 가능합니다!")
         followup_line = "입금 안내를 도와드릴까요?"
         if "입금 안내" in base_message or "도와드릴까요" in base_message:
             followup_line = ""
@@ -263,7 +466,7 @@ def booking_node(state: ReservationState):
 
 
 def change_node(state: ReservationState):
-    """Handle reservation change requests using shared slots."""
+    """Handle reservation change requests by updating the backend reservation when possible."""
     print("--- [NODE] Change Node ---")
 
     intent = _intent_to_str(state.get("intent", ""))
@@ -274,50 +477,171 @@ def change_node(state: ReservationState):
             "response_draft": build_non_booking_response(intent),
         }
 
+    user_input = state.get("user_input", "")
     slots = state.get("slots")
-    name = slots.name if slots else None
-    reserve_date = slots.reserve_date if slots else None
-    reserve_time = slots.reserve_time if slots else None
-    service = _get_service_display_name(slots.service_code) if slots and slots.service_code else None
+    slots, customer_lookup = _enrich_slots_with_customer(slots, state)
+    name = (slots.name if slots else None) or _extract_name_hint(user_input)
+    phone_num = (slots.phone_num if slots else None) or _extract_phone_hint(user_input)
+    reserve_date = (slots.reserve_date if slots else None) or (_extract_date_tokens(user_input)[0] if _extract_date_tokens(user_input) else None)
+    reserve_time = (slots.reserve_time if slots else None) or (_extract_time_tokens(user_input)[0] if _extract_time_tokens(user_input) else None)
+    service = _get_service_display_name(slots.service_code) if slots and slots.service_code else _extract_service_display_from_text(user_input)
 
     candidates = backend_client.find_reservations(
         name=name,
+        phone_num=phone_num,
         reserve_date=reserve_date,
         reserve_time=reserve_time,
         service=service,
     )
+    matched = _unique_or_none(candidates)
 
-    if not candidates:
+    if matched is None:
+        if not candidates:
+            return {
+                "booking_status": "N/A",
+                "next_action": "ask_followup",
+                "response_draft": _build_change_followup(),
+                "policy_check_results": {"matched_reservations": []},
+            }
+
         return {
             "booking_status": "N/A",
             "next_action": "ask_followup",
             "response_draft": (
-                f"{CHANGE_FALLBACK_MESSAGE.strip()}\n"
-                "기존 예약자 성함과 기존 예약 날짜/시간을 알려주시면 변경 가능 여부를 확인해드릴게요."
+                f"{CHANGE_MESSAGE.strip()}\n"
+                "여러 예약이 검색되어 하나로 특정할 수 없습니다.\n"
+                "예약자 성함과 기존 예약 날짜/시간을 더 정확히 알려주세요."
             ),
-            "policy_check_results": {"matched_reservations": []},
+            "policy_check_results": {"matched_reservations": candidates},
         }
 
-    matched_summary = _candidate_summary_lines(candidates)
-    requested_date = reserve_date or "새 날짜"
-    requested_time = reserve_time or "새 시간"
+    extracted_dates = _extract_date_tokens(user_input)
+    extracted_times = _extract_time_tokens(user_input)
+    if len(extracted_dates) < 2 or len(extracted_times) < 2:
+        return {
+            "booking_status": "pending_review",
+            "next_action": "ask_followup",
+            "response_draft": (
+                f"{CHANGE_MESSAGE.strip()}\n"
+                "기존 예약을 찾았습니다.\n"
+                f"{_candidate_summary_lines([matched])}\n"
+                "변경 희망 일정(새 날짜/시간)을 알려주시면 바로 반영하겠습니다."
+            ),
+            "policy_check_results": {"matched_reservation": matched},
+        }
+
+    new_reserve_date = extracted_dates[-1]
+    new_reserve_time = extracted_times[-1]
+
+    if not new_reserve_date or not new_reserve_time:
+        return {
+            "booking_status": "pending_review",
+            "next_action": "ask_followup",
+            "response_draft": (
+                f"{CHANGE_MESSAGE.strip()}\n"
+                "기존 예약을 찾았습니다.\n"
+                f"{_candidate_summary_lines([matched])}\n"
+                "변경 희망 일정(새 날짜/시간)을 알려주시면 바로 반영하겠습니다."
+            ),
+            "policy_check_results": {"matched_reservation": matched},
+        }
+
+    service_code = _service_code_from_display_name(matched.get("service"))
+    off_removal = bool(matched.get("off_removal"))
+    duration_min = PolicyEngine.calculate_duration(service_code or "GEL_NAIL", off_removal)
+
+    schedule = backend_client.get_schedule(new_reserve_date)
+    if not schedule.get("success", True):
+        return {
+            "booking_status": "backend_error",
+            "next_action": "retry_or_human_review",
+            "response_draft": "새 희망 날짜의 예약 가능 시간을 확인할 수 없어 변경 처리를 잠시 보류했어요. 잠시 후 다시 시도해주세요.",
+            "policy_check_results": {
+                "matched_reservation": matched,
+                "schedule_error": schedule,
+            },
+        }
+
+    matched_reserve_time = str(matched.get("reserve_time", ""))
+    booked_slots = [
+        slot
+        for slot in schedule["booked_slots"]
+        if str(slot.get("reserve_time", "")) != matched_reserve_time
+    ]
+
+    validation = PolicyEngine.validate_reservation(
+        new_reserve_date,
+        new_reserve_time,
+        duration_min,
+        booked_slots,
+        business_hours=schedule["business_hours"],
+    )
+
+    if not validation["valid"]:
+        recommendations = PolicyEngine.get_available_recommendations(
+            schedule["business_hours"],
+            booked_slots,
+            duration_min,
+        )
+        rec_text = " / ".join(recommendations) if recommendations else "추천 가능한 시간대를 찾지 못했습니다."
+        return {
+            "booking_status": "rejected",
+            "next_action": "ask_followup",
+            "response_draft": (
+                f"{CHANGE_MESSAGE.strip()}\n"
+                f"죄송합니다. {validation['reason']}\n"
+                f"대신 가능한 시간대는 다음과 같습니다.\n{rec_text}"
+            ),
+            "policy_check_results": {
+                "matched_reservation": matched,
+                "business_hours": schedule["business_hours"],
+                "booked_slots": booked_slots,
+                "reason": validation["reason"],
+            },
+        }
+
+    new_reserve_time_range = (
+        f"{new_reserve_time}-{(datetime.strptime(new_reserve_time, '%H:%M') + timedelta(minutes=duration_min)).strftime('%H:%M')}"
+    )
+    payload = {
+        "reserve_date": new_reserve_date,
+        "reserve_time": new_reserve_time_range,
+        "estimated_duration_min": duration_min,
+    }
+    update_result = backend_client.update_reservation(int(matched["id"]), payload)
+    if not update_result.get("success", True):
+        return {
+            "booking_status": "backend_error",
+            "next_action": update_result.get("next_action", "human_review"),
+            "response_draft": "예약 변경 처리 중 오류가 발생했어요. 잠시 후 다시 시도하거나 사장님 확인이 필요합니다.",
+            "policy_check_results": {
+                "matched_reservation": matched,
+                "update_result": update_result,
+            },
+        }
+
     response = (
-        f"{CHANGE_FALLBACK_MESSAGE.strip()}\n"
-        "기존 예약을 찾았습니다.\n"
-        f"{matched_summary}\n"
-        f"변경 희망 일정: {requested_date} {requested_time}\n"
-        "현재 자동 변경 API는 준비 중이라 사장님 확인이 필요합니다."
+        f"{CHANGE_MESSAGE.strip()}\n"
+        "기존 예약이 변경되었습니다.\n"
+        f"- 예약자: {matched.get('name')}\n"
+        f"- 예약 ID: {matched.get('id')}\n"
+        f"- 변경 후 일정: {new_reserve_date} {new_reserve_time_range}\n"
+        f"- 처리 상태: {'backend' if update_result.get('source') == 'backend' else 'mock'}"
     )
     return {
-        "booking_status": "pending_review",
-        "next_action": "notify_owner",
+        "booking_status": "updated",
+        "next_action": "notify_success",
         "response_draft": response,
-        "policy_check_results": {"matched_reservations": candidates},
+        "policy_check_results": {
+            "matched_reservation": matched,
+            "update_result": update_result,
+            "business_hours": schedule["business_hours"],
+            "booked_slots": booked_slots,
+        },
     }
 
-
 def cancel_node(state: ReservationState):
-    """Handle reservation cancel requests using shared slots."""
+    """Handle reservation cancel requests by deleting the backend reservation."""
     print("--- [NODE] Cancel Node ---")
 
     intent = _intent_to_str(state.get("intent", ""))
@@ -328,47 +652,75 @@ def cancel_node(state: ReservationState):
             "response_draft": build_non_booking_response(intent),
         }
 
+    user_input = state.get("user_input", "")
     slots = state.get("slots")
-    name = slots.name if slots else None
-    reserve_date = slots.reserve_date if slots else None
-    reserve_time = slots.reserve_time if slots else None
-    service = _get_service_display_name(slots.service_code) if slots and slots.service_code else None
+    slots, customer_lookup = _enrich_slots_with_customer(slots, state)
+    name = (slots.name if slots else None) or _extract_name_hint(user_input)
+    phone_num = (slots.phone_num if slots else None) or _extract_phone_hint(user_input)
+    reserve_date = (slots.reserve_date if slots else None) or (_extract_date_tokens(user_input)[0] if _extract_date_tokens(user_input) else None)
+    reserve_time = (slots.reserve_time if slots else None) or (_extract_time_tokens(user_input)[0] if _extract_time_tokens(user_input) else None)
+    service = _get_service_display_name(slots.service_code) if slots and slots.service_code else _extract_service_display_from_text(user_input)
 
     candidates = backend_client.find_reservations(
         name=name,
+        phone_num=phone_num,
         reserve_date=reserve_date,
         reserve_time=reserve_time,
         service=service,
     )
+    matched = _unique_or_none(candidates)
 
-    if not candidates:
+    if matched is None:
+        if not candidates:
+            return {
+                "booking_status": "N/A",
+                "next_action": "ask_followup",
+                "response_draft": _build_cancel_followup(),
+                "policy_check_results": {"matched_reservations": []},
+            }
+
         return {
             "booking_status": "N/A",
             "next_action": "ask_followup",
             "response_draft": (
-                f"{CANCEL_FALLBACK_MESSAGE.strip()}\n"
-                "예약자 성함과 기존 예약 날짜/시간을 알려주시면 취소 대상 예약을 찾아드릴게요."
+                f"{CANCEL_MESSAGE.strip()}\n"
+                "여러 예약이 검색되어 하나로 특정할 수 없습니다.\n"
+                "예약자 성함과 예약 날짜/시간을 더 정확히 알려주세요."
             ),
-            "policy_check_results": {"matched_reservations": []},
+            "policy_check_results": {"matched_reservations": candidates},
         }
 
-    matched_summary = _candidate_summary_lines(candidates)
+    delete_result = backend_client.delete_reservation(int(matched["id"]))
+    if not delete_result.get("success", True):
+        return {
+            "booking_status": "backend_error",
+            "next_action": delete_result.get("next_action", "human_review"),
+            "response_draft": "예약 취소 처리 중 오류가 발생했어요. 잠시 후 다시 시도하거나 사장님 확인이 필요합니다.",
+            "policy_check_results": {
+                "matched_reservation": matched,
+                "delete_result": delete_result,
+            },
+        }
+
     response = (
-        f"{CANCEL_FALLBACK_MESSAGE.strip()}\n"
-        "취소 대상 예약을 찾았습니다.\n"
-        f"{matched_summary}\n"
-        "현재 자동 취소 API는 준비 중이라 사장님 확인 후 처리됩니다."
+        f"{CANCEL_MESSAGE.strip()}\n"
+        "예약이 취소되었습니다.\n"
+        f"- 예약자: {matched.get('name')}\n"
+        f"- 예약 ID: {matched.get('id')}\n"
+        f"- 처리 상태: {'backend' if delete_result.get('source') == 'backend' else 'mock'}"
     )
     return {
-        "booking_status": "pending_review",
-        "next_action": "notify_owner",
+        "booking_status": "cancelled",
+        "next_action": "notify_success",
         "response_draft": response,
-        "policy_check_results": {"matched_reservations": candidates},
+        "policy_check_results": {
+            "matched_reservation": matched,
+            "delete_result": delete_result,
+        },
     }
 
-
 def payment_node(state: ReservationState):
-    """Handle deposit/payment confirmations using shared slots."""
+    """Handle deposit/payment confirmations and update backend when a payment key is available."""
     print("--- [NODE] Payment Node ---")
 
     intent = _intent_to_str(state.get("intent", ""))
@@ -379,43 +731,132 @@ def payment_node(state: ReservationState):
             "response_draft": build_non_booking_response(intent),
         }
 
+    user_input = state.get("user_input", "")
     slots = state.get("slots")
-    name = slots.name if slots else None
-    reserve_date = slots.reserve_date if slots else None
-    reserve_time = slots.reserve_time if slots else None
-    service = _get_service_display_name(slots.service_code) if slots and slots.service_code else None
+    slots, customer_lookup = _enrich_slots_with_customer(slots, state)
+    name = (slots.name if slots else None) or _extract_name_hint(user_input)
+    phone_num = (slots.phone_num if slots else None) or _extract_phone_hint(user_input)
+    reserve_date = (slots.reserve_date if slots else None) or (_extract_date_tokens(user_input)[0] if _extract_date_tokens(user_input) else None)
+    reserve_time = (slots.reserve_time if slots else None) or (_extract_time_tokens(user_input)[0] if _extract_time_tokens(user_input) else None)
+    service = _get_service_display_name(slots.service_code) if slots and slots.service_code else _extract_service_display_from_text(user_input)
+    is_refund_request = _is_refund_request(user_input)
 
     candidates = backend_client.find_reservations(
         name=name,
+        phone_num=phone_num,
         reserve_date=reserve_date,
         reserve_time=reserve_time,
         service=service,
-        visit_status="PENDING",
+        visit_status=None if is_refund_request else "PENDING",
+        payment_status="PAID" if is_refund_request else "PENDING",
     )
+    matched = _unique_or_none(candidates)
 
-    if not candidates:
+    if matched is None:
+        if not candidates:
+            return {
+                "booking_status": "N/A",
+                "next_action": "ask_followup",
+                "response_draft": _build_payment_followup(),
+                "policy_check_results": {"matched_reservations": []},
+            }
+
         return {
             "booking_status": "N/A",
             "next_action": "ask_followup",
             "response_draft": (
-                f"{PAYMENT_FALLBACK_MESSAGE.strip()}\n"
-                "입금자명과 예약자 성함, 예약 날짜를 함께 알려주시면 대조해드릴게요."
+                f"{PAYMENT_MESSAGE.strip()}\n"
+                "대상 예약이 여러 건 검색되어 하나로 특정할 수 없습니다.\n"
+                "예약자 성함과 예약 날짜/시간을 더 정확히 알려주세요."
             ),
-            "policy_check_results": {"matched_reservations": []},
+            "policy_check_results": {"matched_reservations": candidates},
         }
 
-    matched_summary = _candidate_summary_lines(candidates)
+    if is_refund_request:
+        refund_result = backend_client.refund_payment(int(matched["id"]))
+        if not refund_result.get("success", True):
+            return {
+                "booking_status": "backend_error",
+                "next_action": refund_result.get("next_action", "human_review"),
+                "response_draft": "환불 처리 중 오류가 발생했어요. 잠시 후 다시 시도하거나 사장님 확인이 필요합니다.",
+                "policy_check_results": {
+                    "matched_reservation": matched,
+                    "refund_result": refund_result,
+                },
+            }
+
+        response = (
+            f"{PAYMENT_MESSAGE.strip()}\n"
+            "환불 처리 완료되었습니다.\n"
+            f"- 예약자: {matched.get('name')}\n"
+            f"- 예약 ID: {matched.get('id')}\n"
+            f"- 처리 상태: {'backend' if refund_result.get('source') == 'backend' else 'mock'}"
+        )
+        return {
+            "booking_status": "payment_refunded",
+            "next_action": "notify_success",
+            "response_draft": response,
+            "policy_check_results": {
+                "matched_reservation": matched,
+                "refund_result": refund_result,
+            },
+        }
+
+    payment_key = _extract_payment_key(user_input)
+    amount = _extract_amount_from_text(user_input)
+    if amount is None:
+        amount = backend_client.get_shop_info().get("deposit_amount")
+
+    if not payment_key:
+        return {
+            "booking_status": "pending_review",
+            "next_action": "ask_followup",
+            "response_draft": (
+                f"{PAYMENT_MESSAGE.strip()}\n"
+                "입금 확인 대상 예약을 찾았습니다.\n"
+                f"{_candidate_summary_lines([matched])}\n"
+                "현재 메시지에는 결제 키가 없어 자동 결제 확정은 아직 못했어요.\n"
+                "입금자명, 예약자 성함, 입금 금액, 결제 키가 있다면 함께 알려주세요."
+            ),
+            "policy_check_results": {
+                "matched_reservation": matched,
+                "matched_reservations": candidates,
+            },
+        }
+
+    payment_payload = {
+        "payment_status": "PAID",
+        "payment_key": payment_key,
+        "amount": amount,
+    }
+    update_result = backend_client.update_payment(int(matched["id"]), payment_payload)
+    if not update_result.get("success", True):
+        return {
+            "booking_status": "backend_error",
+            "next_action": update_result.get("next_action", "human_review"),
+            "response_draft": "결제 상태 반영 중 오류가 발생했어요. 잠시 후 다시 시도하거나 사장님 확인이 필요합니다.",
+            "policy_check_results": {
+                "matched_reservation": matched,
+                "update_result": update_result,
+            },
+        }
+
     response = (
-        f"{PAYMENT_FALLBACK_MESSAGE.strip()}\n"
-        "입금 확인 대상 예약을 찾았습니다.\n"
-        f"{matched_summary}\n"
-        "현재 자동 입금 검증 API는 준비 중이라 사장님 확인 후 상태가 확정됩니다."
+        f"{PAYMENT_MESSAGE.strip()}\n"
+        "입금 확인이 완료되었습니다.\n"
+        f"- 예약자: {matched.get('name')}\n"
+        f"- 예약 ID: {matched.get('id')}\n"
+        f"- 결제 금액: {amount}원\n"
+        f"- 처리 상태: {'backend' if update_result.get('source') == 'backend' else 'mock'}"
     )
     return {
-        "booking_status": "pending_review",
-        "next_action": "notify_owner",
+        "booking_status": "payment_confirmed",
+        "next_action": "notify_success",
         "response_draft": response,
-        "policy_check_results": {"matched_reservations": candidates},
+        "policy_check_results": {
+            "matched_reservation": matched,
+            "update_result": update_result,
+        },
     }
 
 def response_node(state: ReservationState):
@@ -430,6 +871,8 @@ def response_node(state: ReservationState):
     intent = _intent_to_str(state.get("intent", "unknown"))
 
     if intent == "booking":
-        return {"response_draft": BOOKING_FORM_GUIDE}
+        shop_info = backend_client.get_shop_info()
+        booking_form_text = _resolve_shop_text(shop_info, "booking_form_text", BOOKING_FORM_GUIDE)
+        return {"response_draft": booking_form_text}
 
     return {"response_draft": build_non_booking_response(intent)}

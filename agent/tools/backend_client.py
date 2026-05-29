@@ -8,6 +8,7 @@ import requests
 
 from agent.agents.schema import BookingSlots
 from agent.tools.backend_errors import (
+    customer_error,
     reservation_error,
     reservation_list_error,
     schedule_error,
@@ -15,6 +16,7 @@ from agent.tools.backend_errors import (
 )
 from agent.tools.backend_normalizers import (
     format_reserve_time,
+    normalize_kakao_customer,
     normalize_reservation_list,
     normalize_schedule,
     normalize_shop_info,
@@ -197,13 +199,78 @@ class BackendClient:
             )
 
     @classmethod
+    @classmethod
+    def lookup_kakao_customer(
+        cls,
+        kakao_user_id: str,
+        plusfriend_user_key: Optional[str] = None,
+    ) -> dict[str, Any]:
+        if not kakao_user_id:
+            return customer_error(
+                error_code="INVALID_KAKAO_USER_ID",
+                message="카카오 유저 ID가 필요합니다.",
+                next_action="human_review",
+            )
+
+        payload = {"kakao_user_id": kakao_user_id}
+        if plusfriend_user_key:
+            payload["plusfriend_user_key"] = plusfriend_user_key
+
+        try:
+            response = requests.post(
+                f"{cls.DEFAULT_BASE_URL}/api/v1/kakao-customers",
+                json=payload,
+                timeout=5,
+            )
+            response_payload = cls._response_json(response)
+
+            if response.status_code == 200:
+                return normalize_kakao_customer(response_payload, source="backend", status_code=response.status_code)
+
+            if cls.USE_MOCK_BACKEND:
+                mock = cls._load_mock("kakao_customer_200.json")
+                if mock:
+                    return normalize_kakao_customer(mock, source="mock", status_code=mock.get("status", 200))
+
+            return customer_error(
+                status_code=response.status_code,
+                error_code=response_payload.get("error_code", "UNKNOWN_BACKEND_ERROR"),
+                message=response_payload.get("message", "카카오 고객 정보를 불러올 수 없습니다."),
+                response=response_payload or None,
+                next_action="retry_or_human_review" if response.status_code >= 500 else "human_review",
+            )
+        except (requests.RequestException, ValueError) as exc:
+            if cls.USE_MOCK_BACKEND:
+                mock = cls._load_mock("kakao_customer_200.json")
+                if mock:
+                    return normalize_kakao_customer(mock, source="mock", status_code=mock.get("status", 200))
+                return {
+                    "success": True,
+                    "source": "mock",
+                    "status_code": 200,
+                    "is_existing": False,
+                    "kakao_user_id": kakao_user_id,
+                    "plusfriend_user_key": plusfriend_user_key,
+                    "name": None,
+                    "phone_num": None,
+                }
+
+            return customer_error(
+                error_code="BACKEND_UNAVAILABLE",
+                message="백엔드 서버에 연결할 수 없습니다.",
+                error=str(exc),
+                next_action="retry_or_human_review",
+            )
+
     def find_reservations(
         cls,
         name: Optional[str] = None,
+        phone_num: Optional[str] = None,
         reserve_date: Optional[str] = None,
         reserve_time: Optional[str] = None,
         service: Optional[str] = None,
         visit_status: Optional[str] = None,
+        payment_status: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         candidates: list[dict[str, Any]] = []
         page = 1
@@ -225,6 +292,8 @@ class BackendClient:
         def _matches(item: dict[str, Any]) -> bool:
             if name and name not in str(item.get("name", "")):
                 return False
+            if phone_num and phone_num not in str(item.get("phone_num", "")):
+                return False
             if reserve_date and reserve_date != str(item.get("reserve_date", "")):
                 return False
             if reserve_time:
@@ -233,7 +302,11 @@ class BackendClient:
                     return False
             if service and service not in str(item.get("service", "")):
                 return False
-            if visit_status and visit_status.upper() != str(item.get("visit_status", "")).upper():
+            actual_visit_status = str(item.get("visit_status", "")).strip()
+            if visit_status and actual_visit_status and visit_status.upper() != actual_visit_status.upper():
+                return False
+            actual_payment_status = str(item.get("payment_status", "")).strip()
+            if payment_status and actual_payment_status and payment_status.upper() != actual_payment_status.upper():
                 return False
             return True
 
@@ -247,7 +320,8 @@ class BackendClient:
             f"{reservation.get('reserve_date', '날짜 미상')} | "
             f"{reservation.get('reserve_time', '시간 미상')} | "
             f"{reservation.get('service', '시술 미상')} | "
-            f"{reservation.get('visit_status', '상태 미상')}"
+            f"{reservation.get('visit_status', '상태 미상')} | "
+            f"{reservation.get('payment_status', '결제 상태 미상')}"
         )
 
     @classmethod
@@ -257,6 +331,8 @@ class BackendClient:
         estimated_duration_min: int,
         deposit_amount: Optional[int] = None,
         designer: Optional[str] = None,
+        kakao_user_id: Optional[str] = None,
+        plusfriend_user_key: Optional[str] = None,
     ) -> dict[str, Any]:
         shop = cls.get_shop_info() if deposit_amount is None else {}
         resolved_deposit_amount = deposit_amount if deposit_amount is not None else shop.get("deposit_amount")
@@ -291,6 +367,8 @@ class BackendClient:
             "off_removal": bool(slots.off_removal),
             "deposit_amount": resolved_deposit_amount,
             "designer": designer,
+            "kakao_user_id": kakao_user_id,
+            "plusfriend_user_key": plusfriend_user_key,
         }
 
         missing_payload_fields = [
@@ -311,6 +389,174 @@ class BackendClient:
             raise ValueError(f"Missing required reservation fields: {', '.join(missing_payload_fields)}")
 
         return payload
+
+    @classmethod
+    def update_reservation(cls, reservation_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            response = requests.patch(
+                f"{cls.DEFAULT_BASE_URL}/api/v1/bookings/{reservation_id}",
+                json=payload,
+                timeout=5,
+            )
+            response_payload = cls._response_json(response)
+
+            if 200 <= response.status_code < 300:
+                return {
+                    "success": True,
+                    "source": "backend",
+                    "status_code": response.status_code,
+                    "response": response_payload or None,
+                }
+
+            return reservation_error(
+                status_code=response.status_code,
+                error_code=response_payload.get("error_code", "UNKNOWN_BACKEND_ERROR"),
+                message=response_payload.get("message", "예약 수정에 실패했습니다."),
+                response=response_payload or None,
+                next_action="retry_or_human_review" if response.status_code >= 500 else "human_review",
+            )
+        except (requests.RequestException, ValueError) as exc:
+            if cls.USE_MOCK_BACKEND:
+                return {
+                    "success": True,
+                    "source": "mock",
+                    "status_code": 200,
+                    "response": {
+                        "reservation_id": reservation_id,
+                        "updated_fields": payload,
+                    },
+                }
+
+            return reservation_error(
+                error_code="BACKEND_UNAVAILABLE",
+                message="백엔드 서버에 연결할 수 없습니다.",
+                error=str(exc),
+                next_action="retry_or_human_review",
+            )
+
+    @classmethod
+    def delete_reservation(cls, reservation_id: int) -> dict[str, Any]:
+        try:
+            response = requests.delete(
+                f"{cls.DEFAULT_BASE_URL}/api/v1/bookings/{reservation_id}",
+                timeout=5,
+            )
+            response_payload = cls._response_json(response)
+
+            if 200 <= response.status_code < 300:
+                return {
+                    "success": True,
+                    "source": "backend",
+                    "status_code": response.status_code,
+                    "response": response_payload or None,
+                }
+
+            return reservation_error(
+                status_code=response.status_code,
+                error_code=response_payload.get("error_code", "UNKNOWN_BACKEND_ERROR"),
+                message=response_payload.get("message", "예약 삭제에 실패했습니다."),
+                response=response_payload or None,
+                next_action="retry_or_human_review" if response.status_code >= 500 else "human_review",
+            )
+        except (requests.RequestException, ValueError) as exc:
+            if cls.USE_MOCK_BACKEND:
+                return {
+                    "success": True,
+                    "source": "mock",
+                    "status_code": 200,
+                    "response": {"reservation_id": reservation_id, "deleted": True},
+                }
+
+            return reservation_error(
+                error_code="BACKEND_UNAVAILABLE",
+                message="백엔드 서버에 연결할 수 없습니다.",
+                error=str(exc),
+                next_action="retry_or_human_review",
+            )
+
+    @classmethod
+    def update_payment(cls, reservation_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            response = requests.patch(
+                f"{cls.DEFAULT_BASE_URL}/api/v1/payments/{reservation_id}",
+                json=payload,
+                timeout=5,
+            )
+            response_payload = cls._response_json(response)
+
+            if 200 <= response.status_code < 300:
+                return {
+                    "success": True,
+                    "source": "backend",
+                    "status_code": response.status_code,
+                    "response": response_payload or None,
+                }
+
+            return reservation_error(
+                status_code=response.status_code,
+                error_code=response_payload.get("error_code", "UNKNOWN_BACKEND_ERROR"),
+                message=response_payload.get("message", "결제 상태 업데이트에 실패했습니다."),
+                response=response_payload or None,
+                next_action="retry_or_human_review" if response.status_code >= 500 else "human_review",
+            )
+        except (requests.RequestException, ValueError) as exc:
+            if cls.USE_MOCK_BACKEND:
+                return {
+                    "success": True,
+                    "source": "mock",
+                    "status_code": 200,
+                    "response": {
+                        "reservation_id": reservation_id,
+                        "updated_fields": payload,
+                    },
+                }
+
+            return reservation_error(
+                error_code="BACKEND_UNAVAILABLE",
+                message="백엔드 서버에 연결할 수 없습니다.",
+                error=str(exc),
+                next_action="retry_or_human_review",
+            )
+
+    @classmethod
+    def refund_payment(cls, reservation_id: int) -> dict[str, Any]:
+        try:
+            response = requests.post(
+                f"{cls.DEFAULT_BASE_URL}/api/v1/payments/{reservation_id}/refund",
+                timeout=5,
+            )
+            response_payload = cls._response_json(response)
+
+            if 200 <= response.status_code < 300:
+                return {
+                    "success": True,
+                    "source": "backend",
+                    "status_code": response.status_code,
+                    "response": response_payload or None,
+                }
+
+            return reservation_error(
+                status_code=response.status_code,
+                error_code=response_payload.get("error_code", "UNKNOWN_BACKEND_ERROR"),
+                message=response_payload.get("message", "환불 처리에 실패했습니다."),
+                response=response_payload or None,
+                next_action="retry_or_human_review" if response.status_code >= 500 else "human_review",
+            )
+        except (requests.RequestException, ValueError) as exc:
+            if cls.USE_MOCK_BACKEND:
+                return {
+                    "success": True,
+                    "source": "mock",
+                    "status_code": 200,
+                    "response": {"reservation_id": reservation_id, "refunded": True},
+                }
+
+            return reservation_error(
+                error_code="BACKEND_UNAVAILABLE",
+                message="백엔드 서버에 연결할 수 없습니다.",
+                error=str(exc),
+                next_action="retry_or_human_review",
+            )
 
     @staticmethod
     def _response_json(response: requests.Response) -> dict[str, Any]:
