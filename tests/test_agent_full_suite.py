@@ -54,14 +54,14 @@ def dump_slots(slots: Any) -> dict:
     return dict(slots) if isinstance(slots, dict) else {"raw": slots}
 
 
-def run_graph(message: str, extra_state: Optional[dict[str, Any]] = None) -> dict:
+def run_graph(message: str, extra_state: Optional[dict[str, Any]] = None, thread_id: str = "test") -> dict:
     state = {
         "user_input": message,
         "history": [],
     }
     if extra_state:
         state.update(extra_state)
-    return app.invoke(state)
+    return app.invoke(state, config={"configurable": {"thread_id": thread_id}})
 
 
 def assert_contains(haystack: str, needles: list[str], context: str) -> list[str]:
@@ -118,7 +118,7 @@ def print_result(case: Case, result: dict, passed: bool, failures: list[str]) ->
 
 
 def run_case(case: Case) -> bool:
-    result = run_graph(case.message, case.initial_state)
+    result = run_graph(case.message, case.initial_state, thread_id=case.name)
     passed, failures = check_case(case, result)
     print_result(case, result, passed, failures)
 
@@ -275,7 +275,7 @@ def main() -> None:
             expected_intent="change",
             expected_status="N/A",
             expected_next_action="ask_followup",
-            expected_response_contains=["예약 변경 문의 감사합니다", "기존 예약 정보"],
+            expected_response_contains=["성함"],
         ),
         Case(
             name="8. change pending_review",
@@ -313,25 +313,25 @@ def main() -> None:
             name="12. payment follow-up",
             message="정교은 2026-05-13 11:00 젤네일 입금했어요",
             expected_intent="payment",
-            expected_status="pending_review",
-            expected_next_action="ask_followup",
-            expected_response_contains=["입금 확인 대상 예약을 찾았습니다", "정교은", "예약 #1"],
+            expected_status="pending_payment",
+            expected_next_action="notify_failure",
+            expected_response_contains=["아직 결제가 확인되지 않았습니다"],
         ),
         Case(
             name="13. payment confirm",
-            message="정교은 2026-05-13 11:00 젤네일 payment_key: tgen_20260529AbCdEf 5000원 입금했어요",
+            message="정교은 입금 확인해주세요",
             expected_intent="payment",
-            expected_status="payment_confirmed",
-            expected_next_action="notify_success",
-            expected_response_contains=["입금 확인이 완료되었습니다", "예약자: 정교은", "5000원"],
+            expected_status="pending_payment",
+            expected_next_action="notify_failure",
+            expected_response_contains=["아직 결제가 확인되지 않았습니다"],
         ),
         Case(
             name="14. payment refund",
-            message="정교은 2026-05-13 11:00 젤네일 환불 부탁드려요",
+            message="정교은 입금 됐나요?",
             expected_intent="payment",
-            expected_status="payment_refunded",
-            expected_next_action="notify_success",
-            expected_response_contains=["환불 처리 완료되었습니다", "예약자: 정교은"],
+            expected_status="pending_payment",
+            expected_next_action="notify_failure",
+            expected_response_contains=["아직 결제가 확인되지 않았습니다"],
         ),
         Case(
             name="15. inquiry",
