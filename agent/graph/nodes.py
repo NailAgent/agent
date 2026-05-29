@@ -520,8 +520,12 @@ def change_node(state: ReservationState):
         }
 
     phone_num = (slots.phone_num if slots else None) or _extract_phone_hint(user_input)
-    reserve_date = (slots.reserve_date if slots else None) or (_extract_date_tokens(user_input)[0] if _extract_date_tokens(user_input) else None)
-    reserve_time = (slots.reserve_time if slots else None) or (_extract_time_tokens(user_input)[0] if _extract_time_tokens(user_input) else None)
+    # 기존 예약 검색 시 날짜/시간은 발화에서 직접 추출한 첫 번째 값 사용
+    # (slots.reserve_date는 LLM이 새 날짜로 채울 수 있어 기존 예약 조회에 부적합)
+    date_tokens = _extract_date_tokens(user_input)
+    time_tokens = _extract_time_tokens(user_input)
+    reserve_date = date_tokens[0] if date_tokens else None
+    reserve_time = time_tokens[0] if time_tokens else None
     service = _get_service_display_name(slots.service_code) if slots and slots.service_code else _extract_service_display_from_text(user_input)
 
     candidates = backend_client.find_reservations(
@@ -777,9 +781,10 @@ def payment_node(state: ReservationState):
             "response_draft": build_non_booking_response(intent),
         }
 
+    user_input = state.get("user_input", "")
     slots = state.get("slots")
     slots, customer_lookup = _enrich_slots_with_customer(slots, state)
-    name = (slots.name if slots else None) or customer_lookup.get("name")
+    name = (slots.name if slots else None) or customer_lookup.get("name") or _extract_name_hint(user_input)
 
     if not name:
         return {

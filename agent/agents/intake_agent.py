@@ -5,7 +5,8 @@ from datetime import datetime
 from typing import Optional
 
 from dotenv import load_dotenv
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import SystemMessage
+from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_openai import ChatOpenAI
 
 from agent.agents.schema import IntakeResult
@@ -241,8 +242,8 @@ class IntakeAgent:
             self.structured_llm = self.llm.with_structured_output(IntakeResult)
             self.prompt = ChatPromptTemplate.from_messages(
                 [
-                    ("system", build_system_prompt()),
-                    ("human", "{input}"),
+                    SystemMessage(content=build_system_prompt()),
+                    HumanMessagePromptTemplate.from_template("{input}"),
                 ]
             )
             self.chain = self.prompt | self.structured_llm
