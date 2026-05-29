@@ -167,6 +167,18 @@ def deterministic_intake(user_input: str, build_followup_fn) -> IntakeResult:
         if need_followup:
             followup_question = build_followup_fn(missing_fields)
 
+    elif intent == Intent.CANCEL:
+        # name만 필수, DB 기존고객 조회로 보완 가능 — missing_fields 없음
+        slots.name = _extract_name(user_input)
+
+    elif intent == Intent.CHANGE:
+        # 발화에 있는 슬롯만 추출, 없는 것은 None — missing_fields 없음
+        slots.name = _extract_name(user_input)
+        slots.reserve_date = _resolve_relative_date(user_input)
+        slots.reserve_time = _extract_time(user_input)
+        slots.service_code = _normalize_service_code(user_input)
+        slots.off_removal = _extract_off_removal(user_input)
+
     elif intent == Intent.UNKNOWN:
         need_followup = True
         followup_question = "예약 문의, 예약 변경, 예약 취소, 입금 확인 중 어떤 요청인지 알려주세요."

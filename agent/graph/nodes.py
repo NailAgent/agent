@@ -512,6 +512,14 @@ def change_node(state: ReservationState):
     slots = state.get("slots")
     slots, customer_lookup = _enrich_slots_with_customer(slots, state)
     name = (slots.name if slots else None) or _extract_name_hint(user_input)
+
+    if not name:
+        return {
+            "booking_status": "N/A",
+            "next_action": "ask_followup",
+            "response_draft": "예약 변경을 도와드리겠습니다. 예약하실 때 사용하신 성함을 알려주세요.",
+        }
+
     phone_num = (slots.phone_num if slots else None) or _extract_phone_hint(user_input)
     reserve_date = (slots.reserve_date if slots else None) or (_extract_date_tokens(user_input)[0] if _extract_date_tokens(user_input) else None)
     reserve_time = (slots.reserve_time if slots else None) or (_extract_time_tokens(user_input)[0] if _extract_time_tokens(user_input) else None)
@@ -687,6 +695,14 @@ def cancel_node(state: ReservationState):
     slots = state.get("slots")
     slots, customer_lookup = _enrich_slots_with_customer(slots, state)
     name = (slots.name if slots else None) or _extract_name_hint(user_input)
+
+    if not name:
+        return {
+            "booking_status": "N/A",
+            "next_action": "ask_followup",
+            "response_draft": "예약 취소를 도와드리겠습니다. 예약하실 때 사용하신 성함을 알려주세요.",
+        }
+
     phone_num = (slots.phone_num if slots else None) or _extract_phone_hint(user_input)
     reserve_date = (slots.reserve_date if slots else None) or (_extract_date_tokens(user_input)[0] if _extract_date_tokens(user_input) else None)
     reserve_time = (slots.reserve_time if slots else None) or (_extract_time_tokens(user_input)[0] if _extract_time_tokens(user_input) else None)
