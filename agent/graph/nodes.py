@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timedelta
 
 from agent.graph.state import ReservationState, merge_slots
-from agent.agents.intake_agent import IntakeAgent
+from agent.agents.intake_agent import IntakeAgent, _build_followup_question
 from agent.agents.schema import BookingSlots
 from agent.tools.backend_client import BackendClient
 from agent.tools.policy_engine import PolicyEngine
@@ -346,8 +346,10 @@ def intake_node(state: ReservationState):
             "response_draft": booking_form_text
         }
 
-    # Use the LLM's suggested followup if present, otherwise build one
-    response_draft = result.followup_question if (result.need_followup and result.followup_question) else ""
+    followup_q = result.followup_question
+    if result.need_followup and not followup_q:
+        followup_q = _build_followup_question(missing_fields)
+    response_draft = followup_q or ""
 
     return {
         "intent": "booking",
