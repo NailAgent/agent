@@ -346,10 +346,7 @@ def intake_node(state: ReservationState):
             "response_draft": booking_form_text
         }
 
-    followup_q = result.followup_question
-    if result.need_followup and not followup_q:
-        followup_q = _build_followup_question(missing_fields)
-    response_draft = followup_q or ""
+    response_draft = _build_followup_question(missing_fields) if missing_count > 0 else ""
 
     return {
         "intent": "booking",

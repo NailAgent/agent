@@ -148,7 +148,7 @@ name, phone_num, off_removal, reserve_date, reserve_time, service_code, past_vis
 For 'booking' intent:
 - Extract all slots. Add missing required fields to missing_fields.
 - Set need_followup to True if any required field is missing.
-- Write followup_question politely in Korean.
+- followup_question is always null.
 
 For 'change' intent:
 - Extract name and any new slot fields if mentioned.
