@@ -415,16 +415,21 @@ def booking_node(state: ReservationState):
             },
         }
 
-    # 1. 소요 시간 계산
-    duration = PolicyEngine.calculate_duration(slots.service_code, slots.off_removal)
+    # 1. 소요 시간 계산 (DB service_durations 우선 사용)
+    duration = PolicyEngine.calculate_duration(
+        slots.service_code,
+        slots.off_removal,
+        service_durations=shop_info.get("service_durations"),
+    )
 
-    # 2. 예약 가능 여부 검증 (Policy Engine 호출)
+    # 2. 예약 가능 여부 검증 (DB closed_days 우선 사용)
     check = PolicyEngine.validate_reservation(
         slots.reserve_date,
         slots.reserve_time,
         duration,
         schedule["booked_slots"],
         business_hours=schedule["business_hours"],
+        closed_days=shop_info.get("closed_days"),
     )
 
     if check["valid"]:
