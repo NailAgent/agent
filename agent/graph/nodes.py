@@ -856,4 +856,11 @@ def response_node(state: ReservationState):
     if booking_status == "pending_payment" and "💳" not in draft:
         draft += "\n\n예약금 결제 링크는 잠시 후 별도로 안내드리겠습니다."
 
+    # inquiry/unknown: 사장님에게 SSE 알림 전송 (human-in-the-loop)
+    intent = _intent_to_str(state.get("intent", ""))
+    if intent in {"inquiry", "unknown"}:
+        slots = state.get("slots")
+        customer_name = (getattr(slots, "name", None) or "고객")
+        backend_client.notify_owner(customer_name=customer_name, waiting=True)
+
     return {"response_draft": draft}

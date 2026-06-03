@@ -586,6 +586,20 @@ class BackendClient:
                 next_action="retry_or_human_review",
             )
 
+    @classmethod
+    def notify_owner(cls, customer_name: str, waiting: bool = True) -> dict[str, Any]:
+        try:
+            response = requests.post(
+                f"{cls.DEFAULT_BASE_URL}/api/v1/sse/notify",
+                json={"customer_name": customer_name, "waiting": waiting},
+                timeout=5,
+            )
+            if 200 <= response.status_code < 300:
+                return {"success": True, "source": "backend"}
+            return {"success": False, "status_code": response.status_code}
+        except (requests.RequestException, ValueError):
+            return {"success": False, "error": "BACKEND_UNAVAILABLE"}
+
     @staticmethod
     def _response_json(response: requests.Response) -> dict[str, Any]:
         if not response.content:
