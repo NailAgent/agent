@@ -123,7 +123,7 @@ Reservia의 구조는 네일샵뿐 아니라 다음과 같은 예약 기반 업�
 
 ### 4.2 예약 가능 시간 확인 및 대체 시간 제안
 
-고객이 요청한 시간이 이미 예약되어 있거나 영업시간과 맞지 않는 경우, Google Calendar와 예약 데이터를 확인하여 가능한 대체 시간대를 제안합니다.
+고객이 요청한 시간이 이미 예약되어 있거나 영업시간과 맞지 않는 경우, 예약 데이터와 Policy Engine을 통해 가능한 대체 시간대를 제안합니다.
 
 예시:
 
@@ -227,9 +227,9 @@ LangGraph는 Reservia의 핵심 자동화 흐름을 연결하는 orchestration l
 | 2 | FastAPI + LangGraph | 메시지 파싱 및 워크플로우 실행 |
 | 3 | Intake Agent (GPT-4o) | 의도 분류, slot 추출, 기존 고객 DB 보완 |
 | 4 | Router | Greeting, Inquiry, Booking, Cancel, Change, Payment로 분기 |
-| 5 | Inquiry Agent | 가격, 운영시간, 정책 등 기타 문의 응대 |
-| 6 | Booking Agent | 신규 예약 등록 및 가능 여부 확인 |
-| 7 | Policy Engine | 영업시간, 예약 가능 여부, 예외 조건 판단 |
+| 5 | Inquiry Agent | 가격, 운영시간, 정책 등 기타 문의 응대 → 처리 불가 시 SSE로 사장님 알림 |
+| 6 | Booking Agent | 신규 예약 등록 및 가능 여부 확인 + 결제 링크 생성 |
+| 7 | Policy Engine | DB 기반 영업시간·휴무일·시술 소요시간 검증, 예약 가능 여부 판단 |
 | 8 | Payments Flow | 예약 생성 시 결제 링크 발송 → Toss 웹훅 수신 → 서명 검증 → Toss API 재조회 → 백엔드 결제 상태 업데이트 |
 | 9 | Google Calendar | 확정 예약 일정 등록 *(구현 예정)* |
 | 10 | Cancel / Change Agent | 기존 예약 조회 후 취소 또는 변경 처리 |
@@ -237,7 +237,7 @@ LangGraph는 Reservia의 핵심 자동화 흐름을 연결하는 orchestration l
 
 ### 6.2 Shared State
 
-n8n workflow에서는 고객 메시지를 처리하기 위해 다음과 같은 상태값을 유지합니다.
+LangGraph workflow에서는 고객 메시지를 처리하기 위해 다음과 같은 상태값을 유지합니다.
 
 | Field | Description |
 |---|---|
