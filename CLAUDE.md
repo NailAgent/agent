@@ -22,7 +22,7 @@ USE_MOCK_BACKEND=true   # set to true to skip real backend calls
 
 ```bash
 # Run server
-uvicorn main:server --reload
+uvicorn server:server --reload
 
 # Run tests (always use mock backend)
 USE_MOCK_BACKEND=true pytest tests/test_agent_full_suite.py -v

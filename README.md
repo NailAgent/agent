@@ -133,9 +133,20 @@ Reservia의 구조는 네일샵뿐 아니라 다음과 같은 예약 기반 업�
 원하시는 시간대를 선택해주세요 😊
 ```
 
-### 4.3 예약금 결제 확인 후 최종 예약 확정 *(구현 예정)*
+### 4.3 예약금 결제 확인 후 최종 예약 확정
 
-예약은 바로 확정되지 않고, 예약금 결제 또는 입금 확인 이후 최종 확정됩니다. 결제 상태가 확인되면 예약 상태를 업데이트하고 고객과 사장님에게 확정 메시지를 전송합니다. Toss Payments 웹훅 연동을 통해 자동 처리할 예정입니다.
+예약은 바로 확정되지 않고, 예약금 결제 확인 이후 최종 확정됩니다. Toss Payments 웹훅 연동을 통해 자동 처리됩니다.
+
+결제 흐름:
+
+1. 예약 생성 → 고객에게 결제 링크 전송
+2. 고객이 결제 완료
+3. Toss가 `POST /toss/webhook`으로 결제 완료 이벤트 전송
+4. 서명 검증 (TOSS_SECRET_KEY 기반 Basic auth)
+5. Toss API 재조회로 결제 상태 확인 (`status: DONE`, 금액 검증)
+6. 백엔드 결제 상태 업데이트 (`PATCH /api/v1/payments/{id}`)
+7. LangGraph 해당 유저 thread 상태 갱신 (`booking_status: payment_confirmed`)
+8. 카카오 채널 푸시 발송 *(비즈니스 채널 인증 후 활성화 예정)*
 
 ### 4.4 예약 변경 및 취소 자동 처리
 
@@ -182,7 +193,7 @@ flowchart LR
 
     I --> M[Reservation API]
     I --> N[Policy Engine]
-    I --> O[Toss Payments API<br/>구현 예정]
+    I --> O[Toss Payments API]
     I --> P[Google Calendar<br/>구현 예정]
     J --> M
     K --> M
@@ -219,7 +230,7 @@ LangGraph는 Reservia의 핵심 자동화 흐름을 연결하는 orchestration l
 | 5 | Inquiry Agent | 가격, 운영시간, 정책 등 기타 문의 응대 |
 | 6 | Booking Agent | 신규 예약 등록 및 가능 여부 확인 |
 | 7 | Policy Engine | 영업시간, 예약 가능 여부, 예외 조건 판단 |
-| 8 | Payments Flow | Toss Payments 웹훅을 통한 예약금 결제 확인 *(구현 예정)* |
+| 8 | Payments Flow | 예약 생성 시 결제 링크 발송 → Toss 웹훅 수신 → 서명 검증 → Toss API 재조회 → 백엔드 결제 상태 업데이트 |
 | 9 | Google Calendar | 확정 예약 일정 등록 *(구현 예정)* |
 | 10 | Cancel / Change Agent | 기존 예약 조회 후 취소 또는 변경 처리 |
 | 11 | Response | 고객에게 최종 응답 반환 |

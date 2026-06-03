@@ -391,6 +391,32 @@ class BackendClient:
         return payload
 
     @classmethod
+    def get_reservation(cls, reservation_id: int) -> dict[str, Any]:
+        try:
+            response = requests.get(
+                f"{cls.DEFAULT_BASE_URL}/api/v1/bookings/{reservation_id}",
+                timeout=5,
+            )
+            payload = cls._response_json(response)
+
+            if response.status_code == 200:
+                return {"success": True, "source": "backend", "data": payload}
+
+            return reservation_error(
+                status_code=response.status_code,
+                error_code=payload.get("error_code", "UNKNOWN_BACKEND_ERROR"),
+                message=payload.get("message", "예약 정보를 불러올 수 없습니다."),
+                next_action="human_review",
+            )
+        except (requests.RequestException, ValueError) as exc:
+            return reservation_error(
+                error_code="BACKEND_UNAVAILABLE",
+                message="백엔드 서버에 연결할 수 없습니다.",
+                error=str(exc),
+                next_action="retry_or_human_review",
+            )
+
+    @classmethod
     def update_reservation(cls, reservation_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             response = requests.patch(

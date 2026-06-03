@@ -1,4 +1,13 @@
 {
   "status": 201,
-  "data": null
+  "data": {
+    "id": 99,
+    "name": "테스트고객",
+    "reserve_date": "2026-06-10",
+    "reserve_time": "14:00-15:00",
+    "service": "젤네일",
+    "off_removal": false,
+    "payment_status": "PENDING",
+    "visit_status": "PENDING"
+  }
 }
