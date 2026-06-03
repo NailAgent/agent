@@ -392,9 +392,11 @@ class BackendClient:
 
     @classmethod
     def get_reservation(cls, reservation_id: int) -> dict[str, Any]:
+        # GET /api/v1/bookings/{id}/exists
+        # 백엔드 요청사항: kakao_user_id, plusfriend_user_key, name, reserve_date, reserve_time 포함 응답
         try:
             response = requests.get(
-                f"{cls.DEFAULT_BASE_URL}/api/v1/bookings/{reservation_id}",
+                f"{cls.DEFAULT_BASE_URL}/api/v1/bookings/{reservation_id}/exists",
                 timeout=5,
             )
             payload = cls._response_json(response)
