@@ -587,6 +587,21 @@ class BackendClient:
             )
 
     @classmethod
+    def upload_booking_image(cls, image_data: bytes, plusfriend_user_key: str) -> dict[str, Any]:
+        try:
+            response = requests.patch(
+                f"{cls.DEFAULT_BASE_URL}/api/v1/bookings/image",
+                params={"plusfriend_user_key": plusfriend_user_key},
+                files={"image": ("image.jpg", image_data, "image/jpeg")},
+                timeout=10,
+            )
+            if 200 <= response.status_code < 300:
+                return {"success": True, "source": "backend"}
+            return {"success": False, "status_code": response.status_code}
+        except (requests.RequestException, ValueError) as exc:
+            return {"success": False, "error": str(exc)}
+
+    @classmethod
     def notify_owner(cls, customer_name: str, waiting: bool = True) -> dict[str, Any]:
         try:
             response = requests.post(

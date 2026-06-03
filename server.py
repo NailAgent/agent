@@ -73,34 +73,61 @@ async def _send_kakao_payment_confirmed(plusfriend_user_key: str, name: str, res
 server = FastAPI()
 
 
+def _kakao_response(text: str) -> dict:
+    return {
+        "version": "2.0",
+        "template": {"outputs": [{"simpleText": {"text": text}}]},
+    }
+
+
 class KakaoRequest(BaseModel):
     userRequest: dict
+    flow: dict = {}
+
+
+async def _handle_image(image_url: str, plusfriend_user_key: str) -> str:
+    if not image_url or not plusfriend_user_key:
+        return "이미지 정보가 올바르지 않습니다."
+    try:
+        async with httpx.AsyncClient() as client:
+            img_resp = await client.get(image_url, timeout=10)
+            img_resp.raise_for_status()
+        result = BackendClient.upload_booking_image(
+            image_data=img_resp.content,
+            plusfriend_user_key=plusfriend_user_key,
+        )
+        if result.get("success"):
+            return "이미지가 예약에 첨부되었습니다 📎"
+        return "이미지 업로드에 실패했습니다. 다시 시도해주세요."
+    except Exception:
+        return "이미지 처리 중 오류가 발생했습니다. 다시 시도해주세요."
 
 
 @server.post("/chat")
 async def chat(req: KakaoRequest):
     user_info = req.userRequest.get("user", {})
     utterance = req.userRequest.get("utterance", "")
+    plusfriend_user_key = user_info.get("properties", {}).get("plusfriendUserKey", "")
     thread_id = user_info.get("id", "default")
+
+    # 이미지 업로드 분기
+    if req.flow.get("trigger", {}).get("type") == "IMAGE_UPLOAD":
+        response_text = await _handle_image(
+            image_url=utterance,
+            plusfriend_user_key=plusfriend_user_key,
+        )
+        return _kakao_response(response_text)
 
     result = await langgraph_app.ainvoke(
         {
             "user_input": utterance,
             "kakao_user_id": user_info.get("id"),
-            "plusfriend_user_key": user_info.get("properties", {}).get("plusfriendUserKey"),
+            "plusfriend_user_key": plusfriend_user_key,
         },
         config={"configurable": {"thread_id": thread_id}},
     )
     response_text = result.get("response_draft", "죄송합니다, 응답을 생성하지 못했습니다.")
-
-    return {
-        "version": "2.0",
-        "template": {
-            "outputs": [
-                {"simpleText": {"text": response_text}}
-            ]
-        }
-    }
+    return _kakao_response(response_text)
 
 
 @server.post("/toss/webhook")
