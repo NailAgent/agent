@@ -1,0 +1,58 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' ||
+      github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy code to Agent EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.AGENT_EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_KEY }}
+          proxy_host: ${{ secrets.NGINX_HOST }}
+          proxy_username: ${{ secrets.EC2_USER }}
+          proxy_key: ${{ secrets.EC2_KEY }}
+          source: "."
+          target: "/home/${{ secrets.EC2_USER }}/agent/"
+
+      - name: Install deps and restart service
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.AGENT_EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_KEY }}
+          proxy_host: ${{ secrets.NGINX_HOST }}
+          proxy_username: ${{ secrets.EC2_USER }}
+          proxy_key: ${{ secrets.EC2_KEY }}
+          envs: CLAUDE_API_KEY,GOOGLE_CREDENTIALS_JSON,GOOGLE_CALENDAR_ID,OPENAI_API_KEY
+          script: |
+            cat > ~/agent/.env << EOF
+            CLAUDE_API_KEY=$CLAUDE_API_KEY
+            GOOGLE_CALENDAR_ID=$GOOGLE_CALENDAR_ID
+            OPENAI_API_KEY=$OPENAI_API_KEY
+            EOF
+            echo "$GOOGLE_CREDENTIALS_JSON" > ~/agent/google-credentials.json
+            chmod 600 ~/agent/google-credentials.json
+            echo "GOOGLE_CREDENTIALS_PATH=file:$(realpath ~/agent/google-credentials.json)" >> ~/agent/.env
+            cd ~/agent
+            source venv/bin/activate
+            pip install -r requirements.txt
+            sudo systemctl restart agent
+        env:
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
