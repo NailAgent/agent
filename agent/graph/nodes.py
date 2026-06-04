@@ -1,3 +1,4 @@
+import os
 import re
 from datetime import datetime, timedelta
 
@@ -414,16 +415,21 @@ def booking_node(state: ReservationState):
             },
         }
 
-    # 1. 소요 시간 계산
-    duration = PolicyEngine.calculate_duration(slots.service_code, slots.off_removal)
+    # 1. 소요 시간 계산 (DB service_durations 우선 사용)
+    duration = PolicyEngine.calculate_duration(
+        slots.service_code,
+        slots.off_removal,
+        service_durations=shop_info.get("service_durations"),
+    )
 
-    # 2. 예약 가능 여부 검증 (Policy Engine 호출)
+    # 2. 예약 가능 여부 검증 (DB closed_days 우선 사용)
     check = PolicyEngine.validate_reservation(
         slots.reserve_date,
         slots.reserve_time,
         duration,
         schedule["booked_slots"],
         business_hours=schedule["business_hours"],
+        closed_days=shop_info.get("closed_days"),
     )
 
     if check["valid"]:
@@ -437,11 +443,7 @@ def booking_node(state: ReservationState):
         )
         reservation_result = backend_client.create_reservation(reservation_payload)
         reserve_time_range = reservation_payload["reserve_time"]
-        backend_status = _extract_backend_status(reservation_result)
         base_message = _resolve_shop_text(shop_info, "booking_message_text", "안녕하세요 고객님, 해당 시간 예약이 가능합니다!")
-        followup_line = "입금 안내를 도와드릴까요?"
-        if "입금 안내" in base_message or "도와드릴까요" in base_message:
-            followup_line = ""
 
         response_parts = [
             base_message,
@@ -449,12 +451,34 @@ def booking_node(state: ReservationState):
             f"- 예상 소요 시간: 약 {duration}분",
             f"- 예약금: {shop_info['deposit_amount']}원",
         ]
-        if reservation_result.get("source") == "backend":
-            response_parts.append(f"예약이 백엔드에 등록되었습니다. ({backend_status})")
+
+        resp_data = reservation_result.get("response") or {}
+        if isinstance(resp_data.get("data"), dict):
+            booking_id = resp_data["data"].get("id")
         else:
-            response_parts.append("예약 정보가 임시 저장되었습니다.")
-        if followup_line:
-            response_parts.append(followup_line)
+            booking_id = resp_data.get("id")
+
+        # 백엔드가 id를 반환하지 않은 경우 이름+날짜로 조회해서 보완
+        if not booking_id and slots.name and slots.reserve_date:
+            candidates = backend_client.find_reservations(
+                name=slots.name,
+                reserve_date=slots.reserve_date,
+            )
+            if candidates:
+                booking_id = candidates[-1].get("id")
+
+        if booking_id:
+            backend_url = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
+            service_name = _get_service_display_name(slots.service_code or "")
+            payment_url = (
+                f"{backend_url}/payment"
+                f"?orderId=booking_{booking_id}"
+                f"&amount={shop_info['deposit_amount']}"
+                f"&orderName={service_name} 예약금"
+                f"&customerName={slots.name or ''}"
+            )
+            response_parts.append(f"\n💳 예약금 결제 링크:\n{payment_url}")
+
         response = "\n".join(part for part in response_parts if part)
         return {
             "is_bookable": True,
@@ -466,7 +490,6 @@ def booking_node(state: ReservationState):
                 "business_hours": schedule["business_hours"],
                 "booked_slots": schedule["booked_slots"],
                 "deposit_amount": shop_info["deposit_amount"],
-                "backend_status": backend_status,
                 "reservation_result": reservation_result,
             },
         }
@@ -477,10 +500,12 @@ def booking_node(state: ReservationState):
             schedule["booked_slots"],
             duration
         )
-        rec_text = " / ".join(recommendations)
-        if not rec_text:
-            rec_text = "추천 가능한 시간대를 찾지 못했습니다. 다른 날짜를 알려주시면 다시 확인해드릴게요."
-        response = f"죄송합니다 고객님, {check['reason']}\n대신 현재 예약 가능한 시간대는 다음과 같습니다.\n{rec_text}"
+        if recommendations:
+            rec_text = "\n".join(f"• {t}" for t in recommendations)
+            rec_block = f"대신 현재 예약 가능한 시간대는 다음과 같습니다.\n{rec_text}"
+        else:
+            rec_block = "현재 예약 가능한 시간대를 찾지 못했습니다.\n다른 날짜를 알려주시면 다시 확인해드릴게요."
+        response = f"죄송합니다 고객님, {check['reason']}\n\n{rec_block}"
         return {
             "is_bookable": False,
             "booking_status": "rejected",
@@ -816,19 +841,31 @@ def payment_node(state: ReservationState):
         }
 
 def response_node(state: ReservationState):
-    """response_draft가 없으면 intent별 기본 응답으로 채워 최종 응답을 확정."""
+    """response_draft가 없으면 intent별 기본 응답으로 채우고, 공통 후처리를 적용해 최종 응답을 확정."""
     print("--- [NODE] Response Draft ---")
 
-    response_draft = state.get("response_draft")
+    draft = state.get("response_draft")
 
-    if response_draft:
-        return {"response_draft": response_draft}
+    if not draft:
+        intent = _intent_to_str(state.get("intent", "unknown"))
+        if intent == "booking":
+            shop_info = backend_client.get_shop_info()
+            draft = _resolve_shop_text(shop_info, "booking_form_text", BOOKING_FORM_GUIDE)
+        else:
+            draft = build_non_booking_response(intent)
 
-    intent = _intent_to_str(state.get("intent", "unknown"))
+    draft = draft.strip()
 
-    if intent == "booking":
-        shop_info = backend_client.get_shop_info()
-        booking_form_text = _resolve_shop_text(shop_info, "booking_form_text", BOOKING_FORM_GUIDE)
-        return {"response_draft": booking_form_text}
+    # 예약금 결제 대기 중인데 결제 링크가 없는 경우 (mock 환경 등) 안내 문구 추가
+    booking_status = state.get("booking_status", "")
+    if booking_status == "pending_payment" and "💳" not in draft:
+        draft += "\n\n예약금 결제 링크는 잠시 후 별도로 안내드리겠습니다."
 
-    return {"response_draft": build_non_booking_response(intent)}
+    # inquiry/unknown: 사장님에게 SSE 알림 전송 (human-in-the-loop)
+    intent = _intent_to_str(state.get("intent", ""))
+    if intent in {"inquiry", "unknown"}:
+        slots = state.get("slots")
+        customer_name = (getattr(slots, "name", None) or "고객")
+        backend_client.notify_owner(customer_name=customer_name, waiting=True)
+
+    return {"response_draft": draft}

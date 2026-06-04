@@ -17,23 +17,25 @@ def normalize_shop_info(
     if not isinstance(data, dict):
         data = {}
 
-    services_price = data.get("services_price") or data.get("servicesPrice") or data.get("services_json")
+    services_price = (
+        data.get("services_price") or data.get("servicesPrice") or data.get("services_json")
+    )
     service_durations = data.get("service_durations") or data.get("serviceDurations")
 
     return {
         "success": True,
         "source": source,
         "status_code": status_code,
-        "business_hour": data.get("business_hour"),
-        "closed_days": data.get("closed_days"),
-        "booking_form_text": data.get("booking_form_text"),
+        "business_hour": data.get("business_hour") or data.get("businessHour"),
+        "closed_days": data.get("closed_days") if data.get("closed_days") is not None else data.get("closedDays"),
+        "booking_form_text": data.get("booking_form_text") or data.get("bookingFormText"),
         "services_price": services_price,
         "services_json": services_price,
         "service_durations": service_durations,
-        "deposit_amount": data.get("deposit_amount"),
-        "account_number": data.get("account_number"),
-        "policy_text": data.get("policy_text"),
-        "booking_message_text": data.get("booking_message_text"),
+        "deposit_amount": data.get("deposit_amount") or data.get("depositAmount"),
+        "account_number": data.get("account_number") or data.get("accountNumber"),
+        "policy_text": data.get("policy_text") or data.get("policyText"),
+        "booking_message_text": data.get("booking_message_text") or data.get("bookingMessageText"),
     }
 
 
