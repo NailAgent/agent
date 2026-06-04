@@ -14,7 +14,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -r requirements.txt
-      - run: pytest tests/
+      - run: pip install -r requirements.txt fastapi uvicorn
+      - run: python tests/test_agent_full_suite.py
         env:
+          USE_MOCK_BACKEND: "true"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
