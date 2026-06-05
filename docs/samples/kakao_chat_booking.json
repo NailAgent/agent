@@ -1,0 +1,12 @@
+{
+  "userRequest": {
+    "user": {
+      "id": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+      "properties": {
+        "plusfriendUserKey": "ABCDef1234ab"
+      }
+    },
+    "utterance": "예약하고 싶어요"
+  },
+  "flow": {}
+}

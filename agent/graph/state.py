@@ -1,4 +1,4 @@
-from typing import TypedDict, List
+from typing import List, NotRequired, Optional, TypedDict
 from agent.agents.schema import BookingSlots
 
 def merge_slots(existing: BookingSlots, new: BookingSlots) -> BookingSlots:
@@ -28,6 +28,9 @@ class ReservationState(TypedDict):
     missing_fields: List[str]
     kakao_user_id: str
     plusfriend_user_key: str
+    pending_intent: NotRequired[Optional[str]]
+    pending_missing_fields: NotRequired[List[str]]
+    pending_followup_question: NotRequired[Optional[str]]
     
     # Decisions
     is_bookable: bool
