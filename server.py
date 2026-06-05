@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import base64
 import inspect
 import json
@@ -14,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from agent.graph.workflow import app as langgraph_app
 from agent.tools.backend_client import BackendClient
+from agent.tools.conversation_store import ConversationStateStore
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,8 @@ TOSS_API_BASE = "https://api.tosspayments.com/v1"
 
 KAKAO_REST_API_KEY = os.getenv("KAKAO_REST_API_KEY", "")
 KAKAO_CHANNEL_PUBLIC_ID = os.getenv("KAKAO_CHANNEL_PUBLIC_ID", "")
+
+STATE_STORE = ConversationStateStore()
 
 server = FastAPI()
 
@@ -168,14 +170,23 @@ async def chat(req: KakaoRequest):
         )
         return _kakao_response(response_text)
 
+    persisted_state = STATE_STORE.load(thread_id)
+    graph_input: dict[str, Any] = {
+        "user_input": utterance,
+        "kakao_user_id": user_info.get("id"),
+        "plusfriend_user_key": plusfriend_user_key,
+    }
+    if persisted_state:
+        graph_input = {**persisted_state, **graph_input}
+        graph_input["user_input"] = utterance
+        graph_input["kakao_user_id"] = user_info.get("id")
+        graph_input["plusfriend_user_key"] = plusfriend_user_key
+
     result = await langgraph_app.ainvoke(
-        {
-            "user_input": utterance,
-            "kakao_user_id": user_info.get("id"),
-            "plusfriend_user_key": plusfriend_user_key,
-        },
+        graph_input,
         config={"configurable": {"thread_id": thread_id}},
     )
+    STATE_STORE.save(thread_id, {**graph_input, **result})
     response_text = result.get("response_draft", "죄송합니다, 응답을 생성하지 못했습니다.")
     return _kakao_response(response_text)
 
@@ -239,6 +250,16 @@ async def toss_webhook(request: Request):
     kakao_user_id = data.get("kakao_user_id")
     if kakao_user_id:
         state_updated = await _update_langgraph_payment_state(kakao_user_id)
+        STATE_STORE.update(
+            kakao_user_id,
+            {
+                "booking_status": "payment_confirmed",
+                "next_action": "notify_success",
+                "pending_intent": None,
+                "pending_missing_fields": [],
+                "pending_followup_question": None,
+            },
+        )
         logger.info("LangGraph payment state update for %s: %s", kakao_user_id, state_updated)
     else:
         logger.warning("Reservation %s has no kakao_user_id; skipping LangGraph update", booking_id)
