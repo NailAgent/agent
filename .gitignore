@@ -7,5 +7,5 @@ __pycache__/
 .DS_Store
 .vscode/
 backend_information/
-docs/local_run_guide.md
+docs
 .runtime/
