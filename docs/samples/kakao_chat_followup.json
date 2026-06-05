@@ -1,0 +1,12 @@
+{
+  "userRequest": {
+    "user": {
+      "id": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+      "properties": {
+        "plusfriendUserKey": "ABCDef1234ab"
+      }
+    },
+    "utterance": "김지수로 예약할게요"
+  },
+  "flow": {}
+}
