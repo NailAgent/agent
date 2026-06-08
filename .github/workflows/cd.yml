@@ -37,12 +37,19 @@ jobs:
           proxy_host: ${{ secrets.NGINX_HOST }}
           proxy_username: ${{ secrets.EC2_USER }}
           proxy_key: ${{ secrets.EC2_KEY }}
-          envs: CLAUDE_API_KEY,GOOGLE_CREDENTIALS_JSON,GOOGLE_CALENDAR_ID,OPENAI_API_KEY
+          envs: CLAUDE_API_KEY,GOOGLE_CREDENTIALS_JSON,GOOGLE_CALENDAR_ID,OPENAI_API_KEY,BACKEND_BASE_URL,TOSS_SECRET_KEY,TOSS_SKIP_SIGNATURE,LANGCHAIN_TRACING_V2,LANGCHAIN_API_KEY,LANGCHAIN_PROJECT
           script: |
             cat > ~/agent/.env << EOF
             CLAUDE_API_KEY=$CLAUDE_API_KEY
             GOOGLE_CALENDAR_ID=$GOOGLE_CALENDAR_ID
             OPENAI_API_KEY=$OPENAI_API_KEY
+            BACKEND_BASE_URL=$BACKEND_BASE_URL
+            TOSS_SECRET_KEY=$TOSS_SECRET_KEY
+            TOSS_SKIP_SIGNATURE=$TOSS_SKIP_SIGNATURE
+            LANGCHAIN_TRACING_V2=$LANGCHAIN_TRACING_V2
+            LANGCHAIN_API_KEY=$LANGCHAIN_API_KEY
+            LANGCHAIN_PROJECT=$LANGCHAIN_PROJECT
+            USE_MOCK_BACKEND=false
             EOF
             echo "$GOOGLE_CREDENTIALS_JSON" > ~/agent/google-credentials.json
             chmod 600 ~/agent/google-credentials.json
@@ -56,3 +63,9 @@ jobs:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+          TOSS_SECRET_KEY: ${{ secrets.TOSS_SECRET_KEY }}
+          TOSS_SKIP_SIGNATURE: ${{ secrets.TOSS_SKIP_SIGNATURE }}
+          LANGCHAIN_TRACING_V2: ${{ secrets.LANGCHAIN_TRACING_V2 }}
+          LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_PROJECT: ${{ secrets.LANGCHAIN_PROJECT }}
