@@ -209,7 +209,14 @@ def _extract_time_tokens(text: str) -> list[str]:
     return deduped
 
 
+_NAME_BLACKLIST = {"예약", "취소", "변경", "결제", "문의", "입금", "확인", "방문", "시술", "문의요", "취소요", "변경요"}
+
+
 def _extract_name_hint(text: str) -> str | None:
+    clean = text.strip()
+    if re.match(r"^[가-힣]{2,4}$", clean) and clean not in _NAME_BLACKLIST:
+        return clean
+
     patterns = (
         r"(?:성함|이름|예약자)\s*[:：]?\s*([가-힣]{2,4})",
         r"^([가-힣]{2,4})\s+(?:\d{4}-\d{2}-\d{2}|01\d-\d{3,4}-\d{4})",
@@ -219,7 +226,9 @@ def _extract_name_hint(text: str) -> str | None:
     for pattern in patterns:
         match = re.search(pattern, text)
         if match:
-            return match.group(1).strip()
+            candidate = match.group(1).strip()
+            if candidate not in _NAME_BLACKLIST:
+                return candidate
     return None
 
 
@@ -337,6 +346,23 @@ def intake_node(state: ReservationState):
     existing_slots = state.get("slots")
     merged_slots = merge_slots(existing_slots, result.slots)
     merged_slots, _customer_lookup = _enrich_slots_with_customer(merged_slots, state)
+
+    # pending이 change/cancel이고 이름이 누락된 상태에서 순수 한국어 이름 입력 시 name 주입
+    pending_missing = state.get("pending_missing_fields", [])
+    if (
+        intent in ("change", "cancel")
+        and "name" in pending_missing
+        and (merged_slots is None or not merged_slots.name)
+        and re.match(r"^[가-힣]{2,4}$", user_input.strip())
+        and user_input.strip() not in _NAME_BLACKLIST
+    ):
+        name_hint = user_input.strip()
+        if merged_slots is None:
+            merged_slots = BookingSlots(name=name_hint)
+        elif hasattr(merged_slots, "model_copy"):
+            merged_slots = merged_slots.model_copy(update={"name": name_hint})
+        else:
+            merged_slots = BookingSlots(**{**merged_slots.dict(), "name": name_hint})
 
     required_fields = ["name", "phone_num", "off_removal", "reserve_date", "reserve_time", "service_code", "past_visit"]
     missing_fields = [field for field in required_fields if getattr(merged_slots, field, None) is None]
