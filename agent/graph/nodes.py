@@ -27,6 +27,45 @@ backend_client = BackendClient()
 
 _FOLLOWUP_FALLBACK_INTENTS = {"unknown"}
 
+_AFFIRMATIVE_KEYWORDS = {"맞아요", "맞습니다", "네", "예", "응", "맞아", "그렇습니다", "그래요", "yes", "ㅇㅇ", "ㅇ"}
+_NEGATIVE_KEYWORDS = {"아니요", "아니에요", "아닌데요", "틀려요", "아니", "아님", "no", "다른거", "다른예약"}
+
+
+def _is_affirmative(text: str) -> bool:
+    t = text.strip().lower().replace(" ", "")
+    return any(k in t for k in _AFFIRMATIVE_KEYWORDS)
+
+
+def _is_negative(text: str) -> bool:
+    t = text.strip().lower().replace(" ", "")
+    return any(k in t for k in _NEGATIVE_KEYWORDS)
+
+
+def _pick_nearest_future(candidates: list[dict]) -> dict | None:
+    """미래 예약 중 가장 가까운 1건 반환 (취소된 건 제외)."""
+    from datetime import date
+    today = date.today().isoformat()
+    future = [
+        c for c in candidates
+        if str(c.get("reserve_date", "")) >= today
+        and str(c.get("visit_status", "")).upper() != "CANCELLED"
+    ]
+    if not future:
+        return None
+    return sorted(future, key=lambda c: (c.get("reserve_date", ""), c.get("reserve_time", "")))[0]
+
+
+def _build_cancel_confirmation_message(reservation: dict) -> str:
+    name = reservation.get("name", "")
+    date = reservation.get("reserve_date", "")
+    time = reservation.get("reserve_time", "")
+    service = reservation.get("service", "")
+    lines = [f"{name}님의 최근 예약 정보입니다.", "", f"📅 {date} {time}"]
+    if service:
+        lines.append(f"💅 {service}")
+    lines.extend(["", "이 예약을 취소해드릴까요? (맞아요 / 아니요)"])
+    return "\n".join(lines)
+
 
 def _intent_to_str(intent) -> str:
     """Enum 또는 문자열 intent를 plain string으로 정규화."""
@@ -303,6 +342,17 @@ def intake_node(state: ReservationState):
     missing_count = len(missing_fields)
 
     if intent != "booking":
+        # 취소/변경 확인 대기 중이면 next_action과 pending 상태를 보존
+        if intent in ("cancel", "change") and state.get("next_action") == "await_cancel_confirmation":
+            return {
+                "intent": intent,
+                "slots": merged_slots,
+                "missing_fields": [],
+                "is_bookable": False,
+                "booking_status": "N/A",
+                "next_action": "await_cancel_confirmation",
+                "response_draft": "",
+            }
         return {
             "intent": intent,
             "slots": merged_slots,
@@ -534,46 +584,49 @@ def change_node(state: ReservationState):
 
     if matched is None:
         if not candidates:
-            followup = _build_change_followup()
+            # 이름으로만 재검색 → 가장 가까운 미래 예약
+            nearest = _pick_nearest_future(backend_client.find_reservations(name=name))
+            if nearest:
+                matched = nearest
+            else:
+                followup = f"'{name}'님 명의의 예약을 찾을 수 없어요.\n변경할 예약의 날짜와 시간을 알려주시겠어요?\n예) 2026-06-15 14:00"
+                return {
+                    "booking_status": "N/A",
+                    "next_action": "ask_followup",
+                    "response_draft": followup,
+                    **_pending_state_update("change", ["reserve_date", "reserve_time"], followup),
+                    "policy_check_results": {"matched_reservations": []},
+                }
+
+        if matched is None:
+            followup = "\n".join([
+                "여러 예약이 검색되었습니다.",
+                _candidate_summary_lines(candidates),
+                "변경할 예약의 날짜와 시간을 알려주세요.",
+            ])
             return {
                 "booking_status": "N/A",
                 "next_action": "ask_followup",
                 "response_draft": followup,
-                **_pending_state_update("change", ["name", "reserve_date", "reserve_time"], followup),
-                "policy_check_results": {"matched_reservations": []},
+                **_pending_state_update("change", ["reserve_date", "reserve_time"], followup),
+                "policy_check_results": {"matched_reservations": candidates},
             }
-
-        followup = "\n".join(
-            [
-                CHANGE_MESSAGE.strip(),
-                "여러 예약이 검색되어 하나로 특정할 수 없습니다.",
-                "예약자 성함과 기존 예약 날짜/시간을 더 정확히 알려주세요.",
-            ]
-        )
-        return {
-            "booking_status": "N/A",
-            "next_action": "ask_followup",
-            "response_draft": followup,
-            **_pending_state_update("change", ["name", "reserve_date", "reserve_time"], CHANGE_MESSAGE.strip()),
-            "policy_check_results": {"matched_reservations": candidates},
-        }
 
     extracted_dates = _extract_date_tokens(user_input)
     extracted_times = _extract_time_tokens(user_input)
     if len(extracted_dates) < 2 or len(extracted_times) < 2:
-        followup = "\n".join(
-            [
-                CHANGE_MESSAGE.strip(),
-                "기존 예약을 찾았습니다.",
-                _candidate_summary_lines([matched]),
-                "변경 희망 일정(새 날짜/시간)을 알려주시면 바로 반영하겠습니다.",
-            ]
-        )
+        followup = "\n".join([
+            f"{matched.get('name')}님의 예약을 찾았습니다.",
+            f"📅 {matched.get('reserve_date')} {matched.get('reserve_time')} {matched.get('service', '')}",
+            "",
+            "변경 희망 날짜와 시간을 알려주시면 바로 반영하겠습니다.",
+            "예) 2026-06-20 15:00",
+        ])
         return {
             "booking_status": "pending_review",
             "next_action": "ask_followup",
             "response_draft": followup,
-            **_pending_state_update("change", ["reserve_date", "reserve_time"], CHANGE_MESSAGE.strip()),
+            **_pending_state_update("change", ["reserve_date", "reserve_time"], followup),
             "policy_check_results": {"matched_reservation": matched},
         }
 
@@ -700,7 +753,55 @@ def cancel_node(state: ReservationState):
             "response_draft": build_non_booking_response(intent),
         }
 
-    user_input = state.get("user_input", "")
+    user_input = state.get("user_input", "").strip()
+
+    # 확인 대기 상태: 고객의 맞아요/아니요 처리
+    if state.get("next_action") == "await_cancel_confirmation":
+        matched = (state.get("policy_check_results") or {}).get("matched_reservation")
+        if matched:
+            if _is_affirmative(user_input):
+                delete_result = backend_client.delete_reservation(int(matched["id"]))
+                if not delete_result.get("success", True):
+                    return {
+                        "booking_status": "backend_error",
+                        "next_action": delete_result.get("next_action", "human_review"),
+                        "response_draft": "예약 취소 처리 중 오류가 발생했어요. 잠시 후 다시 시도하거나 사장님 확인이 필요합니다.",
+                        **_clear_pending_state(),
+                    }
+                response = "\n".join([
+                    f"{matched.get('name')}님의 예약이 취소되었습니다. 😢",
+                    "",
+                    "취소된 예약:",
+                    f"📅 {matched.get('reserve_date')} {matched.get('reserve_time')}",
+                    f"💅 {matched.get('service', '')}",
+                    "",
+                    "또 방문해 주세요!",
+                ])
+                return {
+                    "booking_status": "cancelled",
+                    "next_action": "notify_success",
+                    "response_draft": response,
+                    **_clear_pending_state(),
+                    "policy_check_results": {"matched_reservation": matched, "delete_result": delete_result},
+                }
+            if _is_negative(user_input):
+                followup = "취소할 예약의 날짜와 시간을 알려주시겠어요?\n예) 2026-06-15 14:00"
+                return {
+                    "booking_status": "N/A",
+                    "next_action": "ask_followup",
+                    "response_draft": followup,
+                    **_pending_state_update("cancel", ["reserve_date", "reserve_time"], followup),
+                }
+        # 명확하지 않은 답변 → 재질문
+        confirmation_msg = _build_cancel_confirmation_message(matched) if matched else "취소 여부를 맞아요 또는 아니요로 알려주세요."
+        return {
+            "booking_status": "N/A",
+            "next_action": "await_cancel_confirmation",
+            "response_draft": confirmation_msg,
+            **_pending_state_update("cancel", [], confirmation_msg),
+            "policy_check_results": {"matched_reservation": matched},
+        }
+
     slots = state.get("slots")
     slots, _customer_lookup = _enrich_slots_with_customer(slots, state)
     name = (slots.name if slots else None) or _extract_name_hint(user_input)
@@ -714,70 +815,60 @@ def cancel_node(state: ReservationState):
             **_pending_state_update("cancel", ["name"], followup),
         }
 
-    phone_num = (slots.phone_num if slots else None) or _extract_phone_hint(user_input)
-    reserve_date = (slots.reserve_date if slots else None) or (_extract_date_tokens(user_input)[0] if _extract_date_tokens(user_input) else None)
-    reserve_time = (slots.reserve_time if slots else None) or (_extract_time_tokens(user_input)[0] if _extract_time_tokens(user_input) else None)
-    service = _get_service_display_name(slots.service_code) if slots and slots.service_code else _extract_service_display_from_text(user_input)
+    # 이름으로 전체 검색 → 가장 가까운 미래 예약 자동 선택
+    all_candidates = backend_client.find_reservations(name=name)
+    nearest = _pick_nearest_future(all_candidates)
 
-    candidates = backend_client.find_reservations(name=name, phone_num=phone_num, reserve_date=reserve_date, reserve_time=reserve_time, service=service)
+    if nearest:
+        confirmation_msg = _build_cancel_confirmation_message(nearest)
+        return {
+            "booking_status": "N/A",
+            "next_action": "await_cancel_confirmation",
+            "response_draft": confirmation_msg,
+            **_pending_state_update("cancel", [], confirmation_msg),
+            "policy_check_results": {"matched_reservation": nearest},
+        }
+
+    # 날짜/시간으로 추가 검색
+    phone_num = (slots.phone_num if slots else None) or _extract_phone_hint(user_input)
+    date_tokens = _extract_date_tokens(user_input)
+    time_tokens = _extract_time_tokens(user_input)
+    reserve_date = date_tokens[0] if date_tokens else None
+    reserve_time = time_tokens[0] if time_tokens else None
+
+    candidates = backend_client.find_reservations(name=name, phone_num=phone_num, reserve_date=reserve_date, reserve_time=reserve_time)
     matched = _unique_or_none(candidates)
+
     if matched is None:
         if not candidates:
-            followup = _build_cancel_followup()
+            followup = f"'{name}'님 명의의 예약을 찾을 수 없어요.\n취소할 예약의 날짜와 시간을 알려주시겠어요?\n예) 2026-06-15 14:00"
             return {
                 "booking_status": "N/A",
                 "next_action": "ask_followup",
                 "response_draft": followup,
-                **_pending_state_update("cancel", ["name", "reserve_date", "reserve_time"], followup),
+                **_pending_state_update("cancel", ["reserve_date", "reserve_time"], followup),
                 "policy_check_results": {"matched_reservations": []},
             }
-
-        followup = "\n".join(
-            [
-                CANCEL_MESSAGE.strip(),
-                "여러 예약이 검색되어 하나로 특정할 수 없습니다.",
-                "예약자 성함과 예약 날짜/시간을 더 정확히 알려주세요.",
-            ]
-        )
+        followup = "\n".join([
+            "여러 예약이 검색되었습니다.",
+            _candidate_summary_lines(candidates),
+            "취소할 예약의 날짜와 시간을 알려주세요.",
+        ])
         return {
             "booking_status": "N/A",
             "next_action": "ask_followup",
             "response_draft": followup,
-            **_pending_state_update("cancel", ["name", "reserve_date", "reserve_time"], CANCEL_MESSAGE.strip()),
+            **_pending_state_update("cancel", ["reserve_date", "reserve_time"], followup),
             "policy_check_results": {"matched_reservations": candidates},
         }
 
-    delete_result = backend_client.delete_reservation(int(matched["id"]))
-    if not delete_result.get("success", True):
-        return {
-            "booking_status": "backend_error",
-            "next_action": delete_result.get("next_action", "human_review"),
-            "response_draft": "예약 취소 처리 중 오류가 발생했어요. 잠시 후 다시 시도하거나 사장님 확인이 필요합니다.",
-            **_clear_pending_state(),
-            "policy_check_results": {
-                "matched_reservation": matched,
-                "delete_result": delete_result,
-            },
-        }
-
-    response = "\n".join(
-        [
-            CANCEL_MESSAGE.strip(),
-            "예약이 취소되었습니다.",
-            f"- 예약자: {matched.get('name')}",
-            f"- 예약 ID: {matched.get('id')}",
-            f"- 처리 상태: {'backend' if delete_result.get('source') == 'backend' else 'mock'}",
-        ]
-    )
+    confirmation_msg = _build_cancel_confirmation_message(matched)
     return {
-        "booking_status": "cancelled",
-        "next_action": "notify_success",
-        "response_draft": response,
-        **_clear_pending_state(),
-        "policy_check_results": {
-            "matched_reservation": matched,
-            "delete_result": delete_result,
-        },
+        "booking_status": "N/A",
+        "next_action": "await_cancel_confirmation",
+        "response_draft": confirmation_msg,
+        **_pending_state_update("cancel", [], confirmation_msg),
+        "policy_check_results": {"matched_reservation": matched},
     }
 
 
