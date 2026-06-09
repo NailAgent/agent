@@ -34,6 +34,9 @@ FEW_SHOT_EXAMPLES = """
 - "이벤트 있나요?" -> intent: inquiry
 - "주차 가능한가요?" -> intent: inquiry
 - "어디 있어요?" -> intent: inquiry
+- "기타" -> intent: inquiry
+- "기타 문의" -> intent: inquiry
+- "기타 문의 있어요" -> intent: inquiry
 - "예약금 보내면 되나요?" -> intent: payment
 - "입금했어요" -> intent: payment
 
@@ -98,6 +101,7 @@ Use only one of:
     must be classified as inquiry, not booking.
     - "영업시간 문의드립니다" → inquiry
     - "가격 문의드립니다" → inquiry
+    - "기타", "기타 문의", "기타 문의 있어요" → inquiry (단순 "기타"도 반드시 inquiry로 분류)
     - "영업시간이 어떻게 되나요?" → inquiry
     - "가격이 얼마예요?" → inquiry
     Keywords that indicate inquiry: 영업시간, 가격, 위치, 시술 종류, 이벤트

@@ -71,7 +71,7 @@ def _classify_intent(text: str) -> Intent:
         return Intent.GREETING
     if "예약" in normalized:
         return Intent.BOOKING
-    if any(k in normalized for k in ("가격", "영업시간", "위치", "주차", "메뉴", "시술", "얼마")):
+    if any(k in normalized for k in ("가격", "영업시간", "위치", "주차", "메뉴", "시술", "얼마", "기타")):
         return Intent.INQUIRY
     return Intent.UNKNOWN
 
