@@ -699,17 +699,18 @@ def change_node(state: ReservationState):
     if not new_reserve_date or not new_reserve_time:
         followup = "\n".join(
             [
-                CHANGE_MESSAGE.strip(),
-                "기존 예약을 찾았습니다.",
-                _candidate_summary_lines([matched]),
-                "변경 희망 일정(새 날짜/시간)을 알려주시면 바로 반영하겠습니다.",
+                f"{matched.get('name')}님의 예약을 찾았습니다.",
+                f"📅 {matched.get('reserve_date')} {matched.get('reserve_time')} {matched.get('service', '')}",
+                "",
+                "변경 희망 날짜와 시간을 알려주시면 바로 반영하겠습니다.",
+                "예) 2026-06-20 15:00",
             ]
         )
         return {
             "booking_status": "pending_review",
             "next_action": "ask_followup",
             "response_draft": followup,
-            **_pending_state_update("change", ["reserve_date", "reserve_time"], CHANGE_MESSAGE.strip()),
+            **_pending_state_update("change", ["reserve_date", "reserve_time"], followup),
             "policy_check_results": {"matched_reservation": matched},
         }
 
@@ -748,13 +749,15 @@ def change_node(state: ReservationState):
             "next_action": "ask_followup",
             "response_draft": "\n".join(
                 [
-                    CHANGE_MESSAGE.strip(),
                     f"죄송합니다. {validation['reason']}",
+                    "",
                     f"대신 가능한 시간대는 다음과 같습니다.",
                     rec_text,
+                    "",
+                    "원하시는 시간을 말씀해 주시면 변경해드리겠습니다 😊",
                 ]
             ),
-            **_pending_state_update("change", ["reserve_date", "reserve_time"], CHANGE_MESSAGE.strip()),
+            **_pending_state_update("change", ["reserve_date", "reserve_time"], ""),
             "policy_check_results": {
                 "matched_reservation": matched,
                 "business_hours": schedule["business_hours"],
@@ -784,12 +787,11 @@ def change_node(state: ReservationState):
 
     response = "\n".join(
         [
-            CHANGE_MESSAGE.strip(),
-            "기존 예약이 변경되었습니다.",
-            f"- 예약자: {matched.get('name')}",
-            f"- 예약 ID: {matched.get('id')}",
-            f"- 변경 후 일정: {new_reserve_date} {new_reserve_time_range}",
-            f"- 처리 상태: {'backend' if update_result.get('source') == 'backend' else 'mock'}",
+            "✅ 예약이 변경되었습니다!",
+            "",
+            f"📅 변경된 일정: {new_reserve_date} {new_reserve_time_range}",
+            "",
+            "또 궁금하신 점이 있으면 편하게 말씀해 주세요 😊",
         ]
     )
     return {
