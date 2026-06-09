@@ -183,7 +183,7 @@ async def chat(req: KakaoRequest):
         graph_input["plusfriend_user_key"] = plusfriend_user_key
 
         # 이전 대화가 완료된 상태면 슬롯을 초기화해 새 대화 오염 방지
-        _TERMINAL_STATUSES = {"pending_payment", "payment_confirmed", "cancelled", "updated", "rejected"}
+        _TERMINAL_STATUSES = {"payment_confirmed", "cancelled", "updated", "rejected"}
         if persisted_state.get("booking_status") in _TERMINAL_STATUSES:
             graph_input["slots"] = None
             graph_input["missing_fields"] = []
