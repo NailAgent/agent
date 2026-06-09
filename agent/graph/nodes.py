@@ -514,10 +514,12 @@ def booking_node(state: ReservationState):
         reservation_result = backend_client.create_reservation(reservation_payload)
         reserve_time_range = reservation_payload["reserve_time"]
 
+        reserve_date = reservation_payload["reserve_date"]
         response_parts = [
             "예약 정보가 임시 저장되었습니다.",
             "입금 안내를 확인해 주세요.",
-            f"- 예약 희망 시간: {reserve_time_range}",
+            f"- 예약 날짜: {reserve_date}",
+            f"- 예약 시간: {reserve_time_range}",
             f"- 예상 소요 시간: 약 {duration}분",
             f"- 예약금: {shop_info['deposit_amount']}원",
         ]
