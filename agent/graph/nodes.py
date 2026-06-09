@@ -817,7 +817,20 @@ def cancel_node(state: ReservationState):
         matched = (state.get("policy_check_results") or {}).get("matched_reservation")
         if matched:
             if _is_affirmative(user_input):
-                delete_result = backend_client.delete_reservation(int(matched["id"]))
+                reservation_id = int(matched["id"])
+                is_paid = str(matched.get("payment_status", "")).upper() == "PAID"
+
+                if is_paid:
+                    refund_result = backend_client.refund_payment(reservation_id)
+                    if not refund_result.get("success", True):
+                        return {
+                            "booking_status": "backend_error",
+                            "next_action": "human_review",
+                            "response_draft": "환불 처리 중 오류가 발생했어요. 잠시 후 다시 시도하거나 사장님 확인이 필요합니다.",
+                            **_clear_pending_state(),
+                        }
+
+                delete_result = backend_client.delete_reservation(reservation_id)
                 if not delete_result.get("success", True):
                     return {
                         "booking_status": "backend_error",
@@ -831,6 +844,7 @@ def cancel_node(state: ReservationState):
                     "취소된 예약:",
                     f"📅 {matched.get('reserve_date')} {matched.get('reserve_time')}",
                     f"💅 {matched.get('service', '')}",
+                    *([" ", "💸 예약금은 3~5일 내 환불됩니다. (결제사에 따라 상이)"] if is_paid else []),
                     "",
                     "또 방문해 주세요!",
                 ])
