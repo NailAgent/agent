@@ -139,14 +139,21 @@ Reservia의 구조는 네일샵뿐 아니라 다음과 같은 예약 기반 업�
 
 결제 흐름:
 
-1. 예약 생성 → 고객에게 결제 링크 전송
-2. 고객이 결제 완료
-3. Toss가 `POST /toss/webhook`으로 결제 완료 이벤트 전송
-4. 서명 검증 (TOSS_SECRET_KEY 기반 Basic auth)
-5. Toss API 재조회로 결제 상태 확인 (`status: DONE`, 금액 검증)
-6. 백엔드 결제 상태 업데이트 (`PATCH /api/v1/payments/{id}`)
-7. LangGraph 해당 유저 thread 상태 갱신 (`booking_status: payment_confirmed`)
-8. 카카오 채널 푸시 발송 *(비즈니스 채널 인증 후 활성화 예정)*
+**경로 A — 고객이 "결제 완료" 메시지 전송 시 (주 경로)**
+
+1. 예약 생성 → `booking_id` state 저장 → 고객에게 결제 링크 전송
+2. 고객이 Toss 결제 완료 후 "결제 완료" 메시지 전송
+3. Toss API 직접 조회 (`GET /v1/payments/orders/booking_{id}`)
+4. `status: DONE` 확인 → 결제 확정 응답
+
+**경로 B — Toss 웹훅 수신 시 (보조 경로)**
+
+1. Toss가 `POST /toss/webhook`으로 결제 완료 이벤트 전송
+2. 서명 검증 (TOSS_SECRET_KEY 기반 Basic auth)
+3. Toss API 재조회로 결제 상태 확인 (`status: DONE`, 금액 검증)
+4. 백엔드 결제 상태 업데이트 (`PATCH /api/v1/payments/{id}`)
+5. LangGraph 해당 유저 thread 상태 갱신 (`booking_status: payment_confirmed`)
+6. 카카오 채널 푸시 발송 *(비즈니스 채널 인증 후 활성화 예정)*
 
 ### 4.4 예약 변경 및 취소 자동 처리
 
@@ -248,6 +255,7 @@ LangGraph workflow에서는 고객 메시지를 처리하기 위해 다음과 �
 | `missing_fields` | 예약 처리를 위해 추가로 필요한 정보 |
 | `is_bookable` | 현재 요청이 예약 가능한 상태인지 여부 |
 | `booking_status` | 예약 상태 |
+| `booking_id` | 예약 생성 후 저장되는 예약 ID (결제 확인에 사용) |
 | `policy_result` | 정책 검증 결과 |
 | `next_action` | 다음에 수행해야 할 작업 |
 | `response_draft` | 고객에게 보낼 응답 초안 |
