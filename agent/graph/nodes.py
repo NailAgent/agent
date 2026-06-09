@@ -506,7 +506,10 @@ def booking_node(state: ReservationState):
                 "customerName": slots.name or "",
             })
             payment_url = f"{backend_url}/payment?{params}"
-            response_parts.append(f"\n💳 예약금 결제 링크:\n{payment_url}")
+            response_parts.append(
+                f"\n💳 예약금 결제 링크:\n{payment_url}"
+                f"\n\n결제 완료 후 '결제 완료'라고 보내주시면 확인해드리겠습니다 😊"
+            )
 
         response = "\n".join(part for part in response_parts if part)
         return {
