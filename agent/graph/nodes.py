@@ -43,7 +43,7 @@ def _is_negative(text: str) -> bool:
 
 
 def _pick_nearest_future(candidates: list[dict]) -> dict | None:
-    """미래 예약 중 가장 가까운 1건 반환 (취소된 건 제외)."""
+    """미래 예약 중 가장 최근에 생성된 1건 반환 (취소된 건 제외)."""
     from datetime import date
     today = date.today().isoformat()
     future = [
@@ -53,7 +53,7 @@ def _pick_nearest_future(candidates: list[dict]) -> dict | None:
     ]
     if not future:
         return None
-    return sorted(future, key=lambda c: (c.get("reserve_date", ""), c.get("reserve_time", "")))[0]
+    return sorted(future, key=lambda c: c.get("id", 0), reverse=True)[0]
 
 
 def _build_cancel_confirmation_message(reservation: dict) -> str:
@@ -886,28 +886,31 @@ def cancel_node(state: ReservationState):
             **_pending_state_update("cancel", ["name"], followup),
         }
 
-    # 이름으로 전체 검색 → 가장 가까운 미래 예약 자동 선택
-    all_candidates = backend_client.find_reservations(name=name)
-    nearest = _pick_nearest_future(all_candidates)
-
-    if nearest:
-        confirmation_msg = _build_cancel_confirmation_message(nearest)
-        return {
-            "booking_status": "N/A",
-            "next_action": "await_cancel_confirmation",
-            "response_draft": confirmation_msg,
-            **_pending_state_update("cancel", [], confirmation_msg),
-            "policy_check_results": {"matched_reservation": nearest},
-        }
-
-    # 날짜/시간으로 추가 검색
     phone_num = (slots.phone_num if slots else None) or _extract_phone_hint(user_input)
+    slot_date = (slots.reserve_date if slots else None)
+    slot_time = (slots.reserve_time if slots else None)
     date_tokens = _extract_date_tokens(user_input)
     time_tokens = _extract_time_tokens(user_input)
-    reserve_date = date_tokens[0] if date_tokens else None
-    reserve_time = time_tokens[0] if time_tokens else None
+    reserve_date = slot_date or (date_tokens[0] if date_tokens else None)
+    reserve_time = slot_time or (time_tokens[0] if time_tokens else None)
 
-    candidates = backend_client.find_reservations(name=name, phone_num=phone_num, reserve_date=reserve_date, reserve_time=reserve_time)
+    # 슬롯에 날짜/시간이 있으면 그것으로 먼저 검색, 없으면 이름으로 전체 검색 후 nearest 선택
+    if reserve_date or reserve_time:
+        candidates = backend_client.find_reservations(name=name, phone_num=phone_num, reserve_date=reserve_date, reserve_time=reserve_time)
+    else:
+        all_candidates = backend_client.find_reservations(name=name)
+        nearest = _pick_nearest_future(all_candidates)
+        if nearest:
+            confirmation_msg = _build_cancel_confirmation_message(nearest)
+            return {
+                "booking_status": "N/A",
+                "next_action": "await_cancel_confirmation",
+                "response_draft": confirmation_msg,
+                **_pending_state_update("cancel", [], confirmation_msg),
+                "policy_check_results": {"matched_reservation": nearest},
+            }
+        candidates = all_candidates
+
     matched = _unique_or_none(candidates)
 
     if matched is None:
