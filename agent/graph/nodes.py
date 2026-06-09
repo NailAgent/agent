@@ -554,14 +554,20 @@ def booking_node(state: ReservationState):
             },
         }
 
-    recommendations = PolicyEngine.get_available_recommendations(schedule["business_hours"], schedule["booked_slots"], duration)
-    if recommendations:
-        rec_text = "\n".join(f"• {item}" for item in recommendations)
-        rec_block = f"대신 현재 예약 가능한 시간대는 다음과 같습니다.\n{rec_text}"
-    else:
-        rec_block = "현재 예약 가능한 시간대를 찾지 못했습니다.\n다른 날짜를 알려주시면 다시 확인해드릴게요."
     weekday_label = _weekday_korean(slots.reserve_date)
     weekday_text = f" ({weekday_label})" if weekday_label else ""
+    is_closed_day = "휴무" in check["reason"]
+
+    if is_closed_day:
+        rec_block = "다른 날짜로 예약 형식을 다시 작성해서 보내주시면 확인해드리겠습니다 😊"
+    else:
+        recommendations = PolicyEngine.get_available_recommendations(schedule["business_hours"], schedule["booked_slots"], duration)
+        if recommendations:
+            rec_text = "\n".join(f"• {item}" for item in recommendations)
+            rec_block = f"대신 현재 예약 가능한 시간대는 다음과 같습니다.\n{rec_text}"
+        else:
+            rec_block = "현재 예약 가능한 시간대를 찾지 못했습니다.\n다른 날짜를 알려주시면 다시 확인해드릴게요."
+
     response = f"죄송합니다 고객님, {check['reason']}\n예약 요청 날짜: {slots.reserve_date}{weekday_text}\n\n{rec_block}"
     return {
         "is_bookable": False,
