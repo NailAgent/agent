@@ -4,6 +4,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from agent.graph.state import ReservationState
 from agent.graph.nodes import (
     intake_node,
+    inquiry_node,
     booking_node,
     change_node,
     cancel_node,
@@ -21,6 +22,7 @@ def create_workflow():
 
     # 2. 노드(작업자) 배치
     workflow.add_node("intake", intake_node)
+    workflow.add_node("inquiry", inquiry_node)
     workflow.add_node("booking", booking_node)
     workflow.add_node("change", change_node)
     workflow.add_node("cancel", cancel_node)
@@ -37,6 +39,7 @@ def create_workflow():
         route_after_intake,
         {
             "response": "response",
+            "inquiry": "inquiry",
             "booking": "booking",
             "change": "change",
             "cancel": "cancel",
@@ -46,6 +49,7 @@ def create_workflow():
 
     # 3. Edge 연결
     # Move to response after booking
+    workflow.add_edge("inquiry", "response")
     workflow.add_edge("booking", "response")
     workflow.add_edge("change", "response")
     workflow.add_edge("cancel", "response")

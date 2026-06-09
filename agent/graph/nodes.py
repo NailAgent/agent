@@ -15,12 +15,14 @@ from agent.agents.constants import (
     WELCOME_MESSAGE,
 )
 from agent.agents.intake_agent import IntakeAgent, _build_followup_question
+from agent.agents.inquiry_agent import InquiryAgent
 from agent.agents.schema import BookingSlots
 from agent.graph.state import ReservationState, merge_slots
 from agent.tools.backend_client import BackendClient
 from agent.tools.policy_engine import PolicyEngine
 
 intake_agent = IntakeAgent()
+inquiry_agent = InquiryAgent()
 backend_client = BackendClient()
 
 _FOLLOWUP_FALLBACK_INTENTS = {"greeting", "inquiry", "unknown", "booking"}
@@ -826,6 +828,30 @@ def payment_node(state: ReservationState):
     }
 
 
+def inquiry_node(state: ReservationState):
+    print("--- [NODE] Inquiry Agent ---")
+    user_input = state.get("user_input", "")
+    shop_info = backend_client.get_shop_info()
+
+    result = inquiry_agent.run(user_input, shop_info)
+
+    if result.answered:
+        return {
+            "booking_status": "N/A",
+            "next_action": "respond_only",
+            "response_draft": result.answer,
+        }
+
+    slots = state.get("slots")
+    customer_name = getattr(slots, "name", None) or "고객"
+    backend_client.notify_owner(customer_name=customer_name, waiting=True)
+    return {
+        "booking_status": "N/A",
+        "next_action": "respond_only",
+        "response_draft": INQUIRY_FALLBACK_MESSAGE,
+    }
+
+
 def response_node(state: ReservationState):
     print("--- [NODE] Response Draft ---")
 
@@ -845,7 +871,7 @@ def response_node(state: ReservationState):
         draft += "\n\n예약금 결제 링크는 잠시 후 별도로 안내드리겠습니다."
 
     intent = _intent_to_str(state.get("intent", ""))
-    if intent in {"inquiry", "unknown"}:
+    if intent == "unknown":
         slots = state.get("slots")
         customer_name = getattr(slots, "name", None) or "고객"
         backend_client.notify_owner(customer_name=customer_name, waiting=True)
