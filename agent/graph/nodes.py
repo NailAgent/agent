@@ -90,7 +90,14 @@ def _clear_pending_state() -> dict:
 
 
 def _should_inherit_pending_intent(state: ReservationState, current_intent: str) -> bool:
-    return bool(state.get("pending_intent")) and current_intent in _FOLLOWUP_FALLBACK_INTENTS
+    if not state.get("pending_intent"):
+        return False
+    if current_intent in _FOLLOWUP_FALLBACK_INTENTS:
+        return True
+    # Slot-like inputs (date/time) are often misclassified as booking during a change flow
+    if current_intent == "booking" and state.get("pending_intent") == "change":
+        return True
+    return False
 
 
 def _resolve_intent_with_pending(state: ReservationState, current_intent: str) -> str:
