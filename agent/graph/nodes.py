@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 from datetime import datetime, timedelta
+from urllib.parse import urlencode
 
 from agent.agents.constants import (
     BOOKING_FORM_GUIDE,
@@ -498,13 +499,13 @@ def booking_node(state: ReservationState):
         if booking_id:
             backend_url = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
             service_name = _get_service_display_name(slots.service_code or "")
-            payment_url = (
-                f"{backend_url}/payment"
-                f"?orderId=booking_{booking_id}"
-                f"&amount={shop_info['deposit_amount']}"
-                f"&orderName={service_name} 예약금"
-                f"&customerName={slots.name or ''}"
-            )
+            params = urlencode({
+                "orderId": f"booking_{booking_id}",
+                "amount": shop_info["deposit_amount"],
+                "orderName": f"{service_name} 예약금",
+                "customerName": slots.name or "",
+            })
+            payment_url = f"{backend_url}/payment?{params}"
             response_parts.append(f"\n💳 예약금 결제 링크:\n{payment_url}")
 
         response = "\n".join(part for part in response_parts if part)
