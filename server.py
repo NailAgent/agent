@@ -182,6 +182,19 @@ async def chat(req: KakaoRequest):
         graph_input["kakao_user_id"] = user_info.get("id")
         graph_input["plusfriend_user_key"] = plusfriend_user_key
 
+        # 이전 대화가 완료된 상태면 슬롯을 초기화해 새 대화 오염 방지
+        _TERMINAL_STATUSES = {"pending_payment", "payment_confirmed", "cancelled", "updated", "rejected"}
+        if persisted_state.get("booking_status") in _TERMINAL_STATUSES:
+            graph_input["slots"] = None
+            graph_input["missing_fields"] = []
+            graph_input["intent"] = None
+            graph_input["booking_status"] = "N/A"
+            graph_input["is_bookable"] = False
+            graph_input["next_action"] = None
+            graph_input["pending_intent"] = None
+            graph_input["pending_missing_fields"] = []
+            graph_input["pending_followup_question"] = None
+
     result = await langgraph_app.ainvoke(
         graph_input,
         config={"configurable": {"thread_id": thread_id}},
