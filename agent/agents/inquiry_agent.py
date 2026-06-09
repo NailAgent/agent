@@ -12,7 +12,8 @@ load_dotenv()
 
 
 class InquiryResult(BaseModel):
-    answered: bool
+    is_trigger: bool       # 실제 질문 없이 문의 의사만 표현한 경우
+    answered: bool         # shop_info로 답변 가능한 경우
     answer: str | None = None
 
 
@@ -51,15 +52,25 @@ def _format_shop_context(shop_info: dict[str, Any]) -> str:
 
 
 SYSTEM_PROMPT = """당신은 네일샵 챗봇 문의 응답 어시스턴트입니다.
-아래 가게 정보를 바탕으로 고객의 질문에 친절하게 답변하세요.
+아래 가게 정보를 바탕으로 고객의 입력을 분석하세요.
 
 {shop_context}
 
-응답 규칙:
-- 가게 정보에 있는 내용만 사용하여 답변하세요.
-- 가게 정보에 없는 내용은 절대 추측하거나 만들어내지 마세요.
-- 답변 가능하면: {{"answered": true, "answer": "한국어로 친절한 답변"}}
-- 답변 불가능하면: {{"answered": false, "answer": null}}
+다음 세 가지 중 하나로 판단하세요.
+
+[경우 1] 실제 질문 없이 문의 의사만 표현한 경우
+예: "기타", "문의요", "궁금한거 있어요", "물어볼게 있어요", "질문 있어요" 등
+구체적인 질문 내용이 없고 단순히 문의하고 싶다는 의사 표현만 있는 경우
+→ {{"is_trigger": true, "answered": false, "answer": null}}
+
+[경우 2] 구체적인 질문이 있고, 가게 정보로 답변 가능한 경우
+→ {{"is_trigger": false, "answered": true, "answer": "한국어로 친절한 답변"}}
+
+[경우 3] 구체적인 질문이 있지만, 가게 정보에 없는 내용인 경우
+→ {{"is_trigger": false, "answered": false, "answer": null}}
+
+규칙:
+- 가게 정보에 있는 내용만 사용하여 답변하세요. 추측하지 마세요.
 - JSON만 출력하세요. 다른 텍스트는 포함하지 마세요."""
 
 
