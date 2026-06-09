@@ -829,15 +829,16 @@ def cancel_node(state: ReservationState):
                             "response_draft": "환불 처리 중 오류가 발생했어요. 잠시 후 다시 시도하거나 사장님 확인이 필요합니다.",
                             **_clear_pending_state(),
                         }
-
-                delete_result = backend_client.delete_reservation(reservation_id)
-                if not delete_result.get("success", True):
-                    return {
-                        "booking_status": "backend_error",
-                        "next_action": delete_result.get("next_action", "human_review"),
-                        "response_draft": "예약 취소 처리 중 오류가 발생했어요. 잠시 후 다시 시도하거나 사장님 확인이 필요합니다.",
-                        **_clear_pending_state(),
-                    }
+                    cancel_result = refund_result
+                else:
+                    cancel_result = backend_client.delete_reservation(reservation_id)
+                    if not cancel_result.get("success", True):
+                        return {
+                            "booking_status": "backend_error",
+                            "next_action": cancel_result.get("next_action", "human_review"),
+                            "response_draft": "예약 취소 처리 중 오류가 발생했어요. 잠시 후 다시 시도하거나 사장님 확인이 필요합니다.",
+                            **_clear_pending_state(),
+                        }
                 response = "\n".join([
                     f"{matched.get('name')}님의 예약이 취소되었습니다. 😢",
                     "",
@@ -853,7 +854,7 @@ def cancel_node(state: ReservationState):
                     "next_action": "notify_success",
                     "response_draft": response,
                     **_clear_pending_state(),
-                    "policy_check_results": {"matched_reservation": matched, "delete_result": delete_result},
+                    "policy_check_results": {"matched_reservation": matched, "cancel_result": cancel_result},
                 }
             if _is_negative(user_input):
                 followup = "취소할 예약의 날짜와 시간을 알려주시겠어요?\n예) 2026-06-15 14:00"
