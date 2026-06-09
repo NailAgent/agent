@@ -39,6 +39,9 @@ class ReservationState(TypedDict):
     
     # Policy/Logic results
     policy_check_results: dict
-    
+
+    # Booking ID (set after reservation created, used for payment verification)
+    booking_id: NotRequired[Optional[int]]
+
     # History
     history: List[dict]

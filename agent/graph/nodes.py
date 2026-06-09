@@ -541,6 +541,7 @@ def booking_node(state: ReservationState):
         return {
             "is_bookable": True,
             "booking_status": "pending_payment",
+            "booking_id": booking_id,
             "response_draft": response,
             "next_action": "notify_success",
             **_clear_pending_state(),
@@ -927,13 +928,36 @@ def payment_node(state: ReservationState):
             **_pending_state_update("payment", ["name"], followup),
         }
 
-    snapshot = backend_client.list_reservations()
-    bookings = snapshot.get("bookings", [])
-    my_bookings = [b for b in bookings if b.get("name") == name]
-    my_bookings.sort(key=lambda item: item.get("reserve_date", ""), reverse=True)
-    my_booking = my_bookings[0] if my_bookings else None
+    import base64
+    import httpx
 
-    is_paid = bool(my_booking and my_booking.get("payment_status") == "PAID")
+    booking_id = state.get("booking_id")
+    is_paid = False
+
+    toss_secret = os.getenv("TOSS_SECRET_KEY", "")
+    if booking_id and toss_secret:
+        order_id = f"booking_{booking_id}"
+        encoded = base64.b64encode(f"{toss_secret}:".encode()).decode()
+        try:
+            resp = httpx.get(
+                f"https://api.tosspayments.com/v1/payments/orders/{order_id}",
+                headers={"Authorization": f"Basic {encoded}"},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                is_paid = resp.json().get("status") == "DONE"
+        except Exception:
+            pass
+
+    if not is_paid:
+        # Toss API 조회 실패 또는 미결제 시 백엔드로 fallback
+        snapshot = backend_client.list_reservations()
+        bookings = snapshot.get("bookings", [])
+        my_bookings = [b for b in bookings if b.get("name") == name]
+        my_bookings.sort(key=lambda item: item.get("reserve_date", ""), reverse=True)
+        my_booking = my_bookings[0] if my_bookings else None
+        is_paid = bool(my_booking and my_booking.get("payment_status") == "PAID")
+
     if is_paid:
         return {
             "booking_status": "payment_confirmed",
