@@ -25,7 +25,7 @@ intake_agent = IntakeAgent()
 inquiry_agent = InquiryAgent()
 backend_client = BackendClient()
 
-_FOLLOWUP_FALLBACK_INTENTS = {"greeting", "inquiry", "unknown", "booking"}
+_FOLLOWUP_FALLBACK_INTENTS = {"unknown"}
 
 
 def _intent_to_str(intent) -> str:
