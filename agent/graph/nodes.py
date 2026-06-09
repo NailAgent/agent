@@ -487,7 +487,7 @@ def booking_node(state: ReservationState):
         "booking_status": "rejected",
         "response_draft": response,
         "next_action": "notify_failure",
-        **_clear_pending_state(),
+        **_pending_state_update("booking", ["reserve_time"], response),
         "policy_check_results": {
             "source": schedule["source"],
             "business_hours": schedule["business_hours"],

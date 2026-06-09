@@ -62,6 +62,15 @@ FEW_SHOT_EXAMPLES = """
 - "남민서 010-1111-2222 2026-05-29 오전 11시 손톱케어 방문X 지인 소개"
   -> intent: booking, name: 남민서, phone_num: 010-1111-2222, off_removal: null, reserve_date: 2026-05-29, reserve_time: 11:00, service_code: GEL_BASIC, past_visit: false, missing_fields: ["off_removal"]
 
+- "그러면 11시 30분으로 할게요"
+  -> intent: booking, reserve_time: 11:30 (대안 시간 선택 — 기존 예약 변경이 아닌 새 시간 확정)
+
+- "11시로 할게요"
+  -> intent: booking, reserve_time: 11:00
+
+- "그럼 12시로 예약할게요"
+  -> intent: booking, reserve_time: 12:00
+
 """.strip()
 
 
