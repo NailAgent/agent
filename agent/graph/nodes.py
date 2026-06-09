@@ -500,10 +500,8 @@ def booking_node(state: ReservationState):
         )
         reservation_result = backend_client.create_reservation(reservation_payload)
         reserve_time_range = reservation_payload["reserve_time"]
-        base_message = _resolve_shop_text(shop_info, "booking_message_text", "안녕하세요 고객님, 해당 시간 예약이 가능합니다!")
 
         response_parts = [
-            base_message,
             "예약 정보가 임시 저장되었습니다.",
             "입금 안내를 확인해 주세요.",
             f"- 예약 희망 시간: {reserve_time_range}",
@@ -1028,7 +1026,8 @@ def response_node(state: ReservationState):
     draft = draft.strip()
 
     booking_status = state.get("booking_status", "")
-    if booking_status == "pending_payment" and "💳" not in draft:
+    current_intent = _intent_to_str(state.get("intent", ""))
+    if booking_status == "pending_payment" and "💳" not in draft and current_intent != "payment":
         draft += "\n\n예약금 결제 링크는 잠시 후 별도로 안내드리겠습니다."
 
     intent = _intent_to_str(state.get("intent", ""))
