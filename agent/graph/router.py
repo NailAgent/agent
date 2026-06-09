@@ -17,7 +17,10 @@ def route_after_intake(state: ReservationState):
     if intent == "payment":
         return "payment"
 
-    if intent not in {"booking", "greeting", "inquiry", "unknown"}:
+    if intent == "inquiry":
+        return "inquiry"
+
+    if intent not in {"booking", "greeting", "unknown"}:
         return "response"
 
     if intent == "booking":
