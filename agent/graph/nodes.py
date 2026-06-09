@@ -830,16 +830,25 @@ def payment_node(state: ReservationState):
 
 def inquiry_node(state: ReservationState):
     print("--- [NODE] Inquiry Agent ---")
-    user_input = state.get("user_input", "")
+    user_input = state.get("user_input", "").strip()
     shop_info = backend_client.get_shop_info()
-
     result = inquiry_agent.run(user_input, shop_info)
+
+    if result.is_trigger:
+        followup = "궁금하신 점을 남겨주세요!\n가격, 영업시간, 예약 정책 등 무엇이든 편하게 문의해 주세요😊"
+        return {
+            "booking_status": "N/A",
+            "next_action": "ask_followup",
+            "response_draft": followup,
+            **_pending_state_update("inquiry", [], followup),
+        }
 
     if result.answered:
         return {
             "booking_status": "N/A",
             "next_action": "respond_only",
             "response_draft": result.answer,
+            **_clear_pending_state(),
         }
 
     slots = state.get("slots")
@@ -849,6 +858,7 @@ def inquiry_node(state: ReservationState):
         "booking_status": "N/A",
         "next_action": "respond_only",
         "response_draft": INQUIRY_FALLBACK_MESSAGE,
+        **_clear_pending_state(),
     }
 
 
