@@ -344,6 +344,15 @@ def intake_node(state: ReservationState):
     intent = _resolve_intent_with_pending(state, current_intent)
 
     existing_slots = state.get("slots")
+    # New explicit booking request after a previous booking is pending payment
+    # → discard old slots and booking_id to avoid re-submitting stale data
+    is_fresh_booking = (
+        current_intent == "booking"
+        and not _should_inherit_pending_intent(state, current_intent)
+        and state.get("booking_status") == "pending_payment"
+    )
+    if is_fresh_booking:
+        existing_slots = None
     merged_slots = merge_slots(existing_slots, result.slots)
     merged_slots, _customer_lookup = _enrich_slots_with_customer(merged_slots, state)
 
@@ -391,6 +400,8 @@ def intake_node(state: ReservationState):
             **_clear_pending_state(),
         }
 
+    fresh_booking_reset = {"booking_id": None} if is_fresh_booking else {}
+
     if missing_count >= 3:
         shop_info = backend_client.get_shop_info()
         booking_form_text = _resolve_shop_text(shop_info, "booking_form_text", BOOKING_FORM_GUIDE)
@@ -403,6 +414,7 @@ def intake_node(state: ReservationState):
             "next_action": "ask_followup",
             "response_draft": booking_form_text,
             **_pending_state_update("booking", missing_fields, booking_form_text),
+            **fresh_booking_reset,
         }
 
     response_draft = _build_followup_question(missing_fields) if missing_count > 0 else ""
@@ -415,6 +427,7 @@ def intake_node(state: ReservationState):
         "next_action": "ask_followup" if missing_count > 0 else "validate_booking",
         "response_draft": response_draft,
         **(_pending_state_update("booking", missing_fields, response_draft) if missing_count > 0 else _clear_pending_state()),
+        **fresh_booking_reset,
     }
 
 
