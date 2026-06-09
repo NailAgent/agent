@@ -632,46 +632,55 @@ def change_node(state: ReservationState):
     phone_num = (slots.phone_num if slots else None) or _extract_phone_hint(user_input)
     date_tokens = _extract_date_tokens(user_input)
     time_tokens = _extract_time_tokens(user_input)
-    reserve_date = date_tokens[0] if date_tokens else None
-    reserve_time = time_tokens[0] if time_tokens else None
     service = _get_service_display_name(slots.service_code) if slots and slots.service_code else _extract_service_display_from_text(user_input)
 
-    candidates = backend_client.find_reservations(name=name, phone_num=phone_num, reserve_date=reserve_date, reserve_time=reserve_time, service=service)
-    matched = _unique_or_none(candidates)
+    # pending_review 상태에서 이전에 찾은 예약이 있으면 재검색 없이 재사용
+    prev_matched = (state.get("policy_check_results") or {}).get("matched_reservation")
+    if prev_matched and state.get("booking_status") == "pending_review":
+        matched = prev_matched
+    else:
+        reserve_date = date_tokens[0] if date_tokens else None
+        reserve_time = time_tokens[0] if time_tokens else None
+        candidates = backend_client.find_reservations(name=name, phone_num=phone_num, reserve_date=reserve_date, reserve_time=reserve_time, service=service)
+        matched = _unique_or_none(candidates)
 
-    if matched is None:
-        if not candidates:
-            # 이름으로만 재검색 → 가장 가까운 미래 예약
-            nearest = _pick_nearest_future(backend_client.find_reservations(name=name))
-            if nearest:
-                matched = nearest
-            else:
-                followup = f"'{name}'님 명의의 예약을 찾을 수 없어요.\n변경할 예약의 날짜와 시간을 알려주시겠어요?\n예) 2026-06-15 14:00"
+        if matched is None:
+            if not candidates:
+                nearest = _pick_nearest_future(backend_client.find_reservations(name=name))
+                if nearest:
+                    matched = nearest
+                else:
+                    followup = f"'{name}'님 명의의 예약을 찾을 수 없어요.\n변경할 예약의 날짜와 시간을 알려주시겠어요?\n예) 2026-06-15 14:00"
+                    return {
+                        "booking_status": "N/A",
+                        "next_action": "ask_followup",
+                        "response_draft": followup,
+                        **_pending_state_update("change", ["reserve_date", "reserve_time"], followup),
+                        "policy_check_results": {"matched_reservations": []},
+                    }
+
+            if matched is None:
+                followup = "\n".join([
+                    "여러 예약이 검색되었습니다.",
+                    _candidate_summary_lines(candidates),
+                    "변경할 예약의 날짜와 시간을 알려주세요.",
+                ])
                 return {
                     "booking_status": "N/A",
                     "next_action": "ask_followup",
                     "response_draft": followup,
                     **_pending_state_update("change", ["reserve_date", "reserve_time"], followup),
-                    "policy_check_results": {"matched_reservations": []},
+                    "policy_check_results": {"matched_reservations": candidates},
                 }
 
-        if matched is None:
-            followup = "\n".join([
-                "여러 예약이 검색되었습니다.",
-                _candidate_summary_lines(candidates),
-                "변경할 예약의 날짜와 시간을 알려주세요.",
-            ])
-            return {
-                "booking_status": "N/A",
-                "next_action": "ask_followup",
-                "response_draft": followup,
-                **_pending_state_update("change", ["reserve_date", "reserve_time"], followup),
-                "policy_check_results": {"matched_reservations": candidates},
-            }
-
-    extracted_dates = _extract_date_tokens(user_input)
-    extracted_times = _extract_time_tokens(user_input)
-    if len(extracted_dates) < 2 or len(extracted_times) < 2:
+    # 새 날짜/시간: pending_review면 현재 입력 1개를 new로, 아니면 마지막 2개 중 new
+    if state.get("booking_status") == "pending_review" and date_tokens and time_tokens:
+        new_reserve_date = date_tokens[0]
+        new_reserve_time = time_tokens[0]
+    elif len(date_tokens) >= 2 and len(time_tokens) >= 2:
+        new_reserve_date = date_tokens[-1]
+        new_reserve_time = time_tokens[-1]
+    else:
         followup = "\n".join([
             f"{matched.get('name')}님의 예약을 찾았습니다.",
             f"📅 {matched.get('reserve_date')} {matched.get('reserve_time')} {matched.get('service', '')}",
@@ -686,9 +695,6 @@ def change_node(state: ReservationState):
             **_pending_state_update("change", ["reserve_date", "reserve_time"], followup),
             "policy_check_results": {"matched_reservation": matched},
         }
-
-    new_reserve_date = extracted_dates[-1]
-    new_reserve_time = extracted_times[-1]
     if not new_reserve_date or not new_reserve_time:
         followup = "\n".join(
             [
