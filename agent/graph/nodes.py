@@ -634,9 +634,10 @@ def change_node(state: ReservationState):
     time_tokens = _extract_time_tokens(user_input)
     service = _get_service_display_name(slots.service_code) if slots and slots.service_code else _extract_service_display_from_text(user_input)
 
-    # pending_review 상태에서 이전에 찾은 예약이 있으면 재검색 없이 재사용
+    # 이전 턴에서 이미 찾은 예약이 있으면 재검색 없이 재사용
+    # (intake_node가 booking_status를 N/A로 덮어쓰므로 booking_status로 판단 불가)
     prev_matched = (state.get("policy_check_results") or {}).get("matched_reservation")
-    if prev_matched and state.get("booking_status") == "pending_review":
+    if prev_matched:
         matched = prev_matched
     else:
         reserve_date = date_tokens[0] if date_tokens else None
@@ -673,8 +674,8 @@ def change_node(state: ReservationState):
                     "policy_check_results": {"matched_reservations": candidates},
                 }
 
-    # 새 날짜/시간: pending_review면 현재 입력 1개를 new로, 아니면 마지막 2개 중 new
-    if state.get("booking_status") == "pending_review" and date_tokens and time_tokens:
+    # prev_matched 있으면 현재 입력 1개를 new로, 없으면 마지막 2개 중 new
+    if prev_matched and date_tokens and time_tokens:
         new_reserve_date = date_tokens[0]
         new_reserve_time = time_tokens[0]
     elif len(date_tokens) >= 2 and len(time_tokens) >= 2:
