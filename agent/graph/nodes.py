@@ -1012,10 +1012,15 @@ def payment_node(state: ReservationState):
         is_paid = bool(my_booking and my_booking.get("payment_status") == "PAID")
 
     if is_paid:
+        response_parts = ["✅ 결제가 확인되었습니다!", "예약이 완료되었어요 :)"]
+        if slots and slots.reserve_date:
+            response_parts.append(f"- 예약 날짜: {slots.reserve_date}")
+        if slots and slots.reserve_time:
+            response_parts.append(f"- 예약 시간: {slots.reserve_time}")
         return {
             "booking_status": "payment_confirmed",
             "next_action": "notify_success",
-            "response_draft": "✅ 결제가 확인되었습니다!\n예약이 완료되었어요 :)",
+            "response_draft": "\n".join(response_parts),
             **_clear_pending_state(),
         }
     return {
