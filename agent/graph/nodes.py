@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
@@ -544,11 +545,13 @@ def booking_node(state: ReservationState):
             if candidates:
                 booking_id = candidates[-1].get("id")
 
+        order_id = None
         if booking_id:
             backend_url = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
             service_name = _get_service_display_name(slots.service_code or "")
+            order_id = f"booking_{booking_id}_{int(time.time())}"
             params = urlencode({
-                "orderId": f"booking_{booking_id}",
+                "orderId": order_id,
                 "amount": shop_info["deposit_amount"],
                 "orderName": f"{service_name} 예약금",
                 "customerName": slots.name or "",
@@ -565,6 +568,7 @@ def booking_node(state: ReservationState):
             "is_bookable": True,
             "booking_status": "pending_payment",
             "booking_id": booking_id,
+            "order_id": order_id,
             "response_draft": response,
             "next_action": "notify_success",
             **_clear_pending_state(),
@@ -988,11 +992,11 @@ def payment_node(state: ReservationState):
     import httpx
 
     booking_id = state.get("booking_id")
+    order_id = state.get("order_id")
     is_paid = False
 
     toss_secret = os.getenv("TOSS_SECRET_KEY", "")
-    if booking_id and toss_secret:
-        order_id = f"booking_{booking_id}"
+    if order_id and toss_secret:
         encoded = base64.b64encode(f"{toss_secret}:".encode()).decode()
         try:
             resp = httpx.get(

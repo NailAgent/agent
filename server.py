@@ -241,7 +241,7 @@ async def toss_webhook(request: Request):
         raise HTTPException(status_code=400, detail="Invalid orderId format")
 
     try:
-        booking_id = int(order_id.removeprefix("booking_"))
+        booking_id = int(order_id.removeprefix("booking_").split("_")[0])
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid booking ID")
 

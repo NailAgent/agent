@@ -43,5 +43,8 @@ class ReservationState(TypedDict):
     # Booking ID (set after reservation created, used for payment verification)
     booking_id: NotRequired[Optional[int]]
 
+    # Toss orderId (booking_{id}_{timestamp}, set after reservation created, used for payment verification)
+    order_id: NotRequired[Optional[str]]
+
     # History
     history: List[dict]

@@ -21,6 +21,8 @@ _PERSISTED_KEYS = (
     "is_bookable",
     "booking_status",
     "next_action",
+    "booking_id",
+    "order_id",
 )
 
 
