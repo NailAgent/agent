@@ -558,7 +558,7 @@ def booking_node(state: ReservationState):
                 "orderId": order_id,
                 "amount": shop_info["deposit_amount"],
                 "orderName": f"{service_name} 예약금",
-                "customerName": slots.name or "",
+                "customer_name": slots.name or "",
             })
             payment_url = f"{backend_url}/payment?{params}"
             response_parts.append(
