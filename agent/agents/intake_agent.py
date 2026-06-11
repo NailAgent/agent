@@ -41,6 +41,9 @@ FEW_SHOT_EXAMPLES = """
 - "문의 있어요" -> intent: inquiry
 - "궁금한거 있어요" -> intent: inquiry
 - "물어볼게 있어요" -> intent: inquiry
+- "네일은 이런식으로 하고 싶어요" -> intent: inquiry
+- "이런 디자인으로 해주세요" -> intent: inquiry
+- "이렇게 해주세요" -> intent: inquiry
 - "예약금 보내면 되나요?" -> intent: payment
 - "입금했어요" -> intent: payment
 
@@ -119,6 +122,10 @@ Use only one of:
     - "영업시간이 어떻게 되나요?" → inquiry
     - "가격이 얼마예요?" → inquiry
     Keywords that indicate inquiry: 영업시간, 가격, 위치, 시술 종류, 이벤트
+    Design/style reference requests (no concrete reservation info given) must also be classified as inquiry:
+    - "네일은 이런식으로 하고 싶어요" → inquiry
+    - "이런 디자인으로 해주세요" → inquiry
+    - "이렇게 해주세요" → inquiry
 
 3. change: The customer wants to change an existing reservation.
 4. cancel: The customer wants to cancel an existing reservation.
