@@ -45,14 +45,18 @@ def _is_negative(text: str) -> bool:
     return any(k in t for k in _NEGATIVE_KEYWORDS)
 
 
+def _exclude_cancelled(candidates: list[dict]) -> list[dict]:
+    """visit_status가 CANCELLED인 예약을 후보 목록에서 제외."""
+    return [c for c in candidates if str(c.get("visit_status", "")).upper() != "CANCELLED"]
+
+
 def _pick_nearest_future(candidates: list[dict]) -> dict | None:
     """미래 예약 중 가장 최근에 생성된 1건 반환 (취소된 건 제외)."""
     from datetime import date
     today = date.today().isoformat()
     future = [
-        c for c in candidates
+        c for c in _exclude_cancelled(candidates)
         if str(c.get("reserve_date", "")) >= today
-        and str(c.get("visit_status", "")).upper() != "CANCELLED"
     ]
     if not future:
         return None
@@ -649,11 +653,20 @@ def change_node(state: ReservationState):
     else:
         reserve_date = date_tokens[0] if date_tokens else None
         reserve_time = time_tokens[0] if time_tokens else None
-        candidates = backend_client.find_reservations(name=name, phone_num=phone_num, reserve_date=reserve_date, reserve_time=reserve_time, service=service)
+        raw_candidates = backend_client.find_reservations(name=name, phone_num=phone_num, reserve_date=reserve_date, reserve_time=reserve_time, service=service)
+        candidates = _exclude_cancelled(raw_candidates)
         matched = _unique_or_none(candidates)
 
         if matched is None:
             if not candidates:
+                if raw_candidates:
+                    return {
+                        "booking_status": "N/A",
+                        "next_action": "respond_only",
+                        "response_draft": f"'{name}'님의 해당 예약은 이미 취소된 상태라 변경할 수 없어요.",
+                        **_clear_pending_state(),
+                        "policy_check_results": {"matched_reservations": []},
+                    }
                 nearest = _pick_nearest_future(backend_client.find_reservations(name=name))
                 if nearest:
                     matched = nearest
@@ -913,7 +926,16 @@ def cancel_node(state: ReservationState):
 
     # 슬롯에 날짜/시간이 있으면 그것으로 먼저 검색, 없으면 이름으로 전체 검색 후 nearest 선택
     if reserve_date or reserve_time:
-        candidates = backend_client.find_reservations(name=name, phone_num=phone_num, reserve_date=reserve_date, reserve_time=reserve_time)
+        raw_candidates = backend_client.find_reservations(name=name, phone_num=phone_num, reserve_date=reserve_date, reserve_time=reserve_time)
+        candidates = _exclude_cancelled(raw_candidates)
+        if not candidates and raw_candidates:
+            return {
+                "booking_status": "N/A",
+                "next_action": "respond_only",
+                "response_draft": f"'{name}'님의 해당 예약은 이미 취소된 상태예요.",
+                **_clear_pending_state(),
+                "policy_check_results": {"matched_reservations": []},
+            }
     else:
         all_candidates = backend_client.find_reservations(name=name)
         nearest = _pick_nearest_future(all_candidates)
@@ -1014,9 +1036,14 @@ def payment_node(state: ReservationState):
         # Toss API 조회 실패 또는 미결제 시 백엔드로 fallback
         snapshot = backend_client.list_reservations()
         bookings = snapshot.get("bookings", [])
-        my_bookings = [b for b in bookings if b.get("name") == name]
-        my_bookings.sort(key=lambda item: item.get("reserve_date", ""), reverse=True)
-        my_booking = my_bookings[0] if my_bookings else None
+        my_booking = None
+        if booking_id is not None:
+            my_booking = next((b for b in bookings if b.get("id") == booking_id), None)
+        if my_booking is None:
+            # booking_id를 모를 때만 이름 + 최신 날짜로 추정 (취소된 예약은 제외)
+            my_bookings = _exclude_cancelled([b for b in bookings if b.get("name") == name])
+            my_bookings.sort(key=lambda item: item.get("reserve_date", ""), reverse=True)
+            my_booking = my_bookings[0] if my_bookings else None
         payment_status = my_booking.get("payment_status") if my_booking else None
         is_paid = payment_status == "PAID"
 
