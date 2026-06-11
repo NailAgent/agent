@@ -324,13 +324,10 @@ class BackendClient:
     @classmethod
     def format_reservation_summary(cls, reservation: dict[str, Any]) -> str:
         return (
-            f"[예약 #{reservation.get('id', '?')}] "
             f"{reservation.get('name', '알 수 없음')} | "
             f"{reservation.get('reserve_date', '날짜 미상')} | "
             f"{reservation.get('reserve_time', '시간 미상')} | "
-            f"{reservation.get('service', '시술 미상')} | "
-            f"{reservation.get('visit_status', '상태 미상')} | "
-            f"{reservation.get('payment_status', '결제 상태 미상')}"
+            f"{reservation.get('service', '시술 미상')}"
         )
 
     @classmethod
