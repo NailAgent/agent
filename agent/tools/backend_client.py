@@ -602,8 +602,7 @@ class BackendClient:
             response = requests.patch(
                 f"{cls.DEFAULT_BASE_URL}/api/v1/bookings/image",
                 params={"plusfriend_user_key": plusfriend_user_key},
-                data=image_data,
-                headers={"Content-Type": "application/octet-stream"},
+                files={"image": ("image.jpg", image_data, "image/jpeg")},
                 timeout=10,
             )
             response_payload = cls._response_json(response)
