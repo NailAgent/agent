@@ -12,6 +12,8 @@ from agent.agents.constants import (
     CHANGE_MESSAGE,
     INQUIRY_FALLBACK_MESSAGE,
     PAYMENT_MESSAGE,
+    PAYMENT_TIMEOUT_CANCELLED_MESSAGE,
+    PAYMENT_TIMEOUT_NOTICE,
     UNKNOWN_FALLBACK_MESSAGE,
     WELCOME_MESSAGE,
 )
@@ -554,7 +556,8 @@ def booking_node(state: ReservationState):
             payment_url = f"{backend_url}/payment?{params}"
             response_parts.append(
                 f"\n💳 예약금 결제 링크:\n{payment_url}"
-                f"\n\n결제 완료 후 '결제 완료'라고 보내주시면 확인해드리겠습니다 😊"
+                f"\n\n{PAYMENT_TIMEOUT_NOTICE}"
+                f"\n결제 완료 후 '결제 완료'라고 보내주시면 확인해드리겠습니다 😊"
             )
 
         response = "\n".join(part for part in response_parts if part)
@@ -1002,6 +1005,7 @@ def payment_node(state: ReservationState):
         except Exception:
             pass
 
+    payment_status = None
     if not is_paid:
         # Toss API 조회 실패 또는 미결제 시 백엔드로 fallback
         snapshot = backend_client.list_reservations()
@@ -1009,7 +1013,8 @@ def payment_node(state: ReservationState):
         my_bookings = [b for b in bookings if b.get("name") == name]
         my_bookings.sort(key=lambda item: item.get("reserve_date", ""), reverse=True)
         my_booking = my_bookings[0] if my_bookings else None
-        is_paid = bool(my_booking and my_booking.get("payment_status") == "PAID")
+        payment_status = my_booking.get("payment_status") if my_booking else None
+        is_paid = payment_status == "PAID"
 
     if is_paid:
         response_parts = ["✅ 결제가 확인되었습니다!", "예약이 완료되었어요 :)"]
@@ -1023,6 +1028,15 @@ def payment_node(state: ReservationState):
             "response_draft": "\n".join(response_parts),
             **_clear_pending_state(),
         }
+
+    if payment_status == "CANCELLED":
+        return {
+            "booking_status": "cancelled",
+            "next_action": "notify_failure",
+            "response_draft": PAYMENT_TIMEOUT_CANCELLED_MESSAGE.strip(),
+            **_clear_pending_state(),
+        }
+
     return {
         "booking_status": "pending_payment",
         "next_action": "notify_failure",
