@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
+from langsmith import traceable
 from pydantic import BaseModel, Field
 
 from agent.graph.workflow import app as langgraph_app
@@ -119,6 +120,7 @@ class KakaoRequest(BaseModel):
     flow: dict[str, Any] = Field(default_factory=dict)
 
 
+@traceable(name="handle_image_upload")
 async def _handle_image(image_url: str, plusfriend_user_key: str) -> str:
     if not image_url or not plusfriend_user_key:
         return "이미지 정보가 올바르지 않습니다."

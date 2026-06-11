@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 import requests
+from langsmith import traceable
 
 from agent.agents.schema import BookingSlots
 from agent.tools.backend_errors import (
@@ -22,6 +23,14 @@ from agent.tools.backend_normalizers import (
     normalize_shop_info,
 )
 from agent.tools.mock_loader import load_mock_json
+
+
+def _redact_image_upload_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    redacted = {k: v for k, v in inputs.items() if k != "cls"}
+    image_data = redacted.get("image_data")
+    if isinstance(image_data, (bytes, bytearray)):
+        redacted["image_data"] = f"<{len(image_data)} bytes>"
+    return redacted
 
 
 class BackendClient:
@@ -587,6 +596,7 @@ class BackendClient:
             )
 
     @classmethod
+    @traceable(name="upload_booking_image", process_inputs=_redact_image_upload_inputs)
     def upload_booking_image(cls, image_data: bytes, plusfriend_user_key: str) -> dict[str, Any]:
         try:
             response = requests.patch(
