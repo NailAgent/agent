@@ -592,12 +592,21 @@ class BackendClient:
             response = requests.patch(
                 f"{cls.DEFAULT_BASE_URL}/api/v1/bookings/image",
                 params={"plusfriend_user_key": plusfriend_user_key},
-                files={"image": ("image.jpg", image_data, "image/jpeg")},
+                data=image_data,
+                headers={"Content-Type": "application/octet-stream"},
                 timeout=10,
             )
+            response_payload = cls._response_json(response)
+
             if 200 <= response.status_code < 300:
-                return {"success": True, "source": "backend"}
-            return {"success": False, "status_code": response.status_code}
+                return {"success": True, "source": "backend", "response": response_payload or None}
+
+            return {
+                "success": False,
+                "status_code": response.status_code,
+                "error_code": response_payload.get("errorCode") or response_payload.get("error_code"),
+                "message": response_payload.get("message"),
+            }
         except (requests.RequestException, ValueError) as exc:
             return {"success": False, "error": str(exc)}
 

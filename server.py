@@ -5,6 +5,8 @@ import inspect
 import json
 import logging
 import os
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -14,6 +16,18 @@ from pydantic import BaseModel, Field
 from agent.graph.workflow import app as langgraph_app
 from agent.tools.backend_client import BackendClient
 from agent.tools.conversation_store import ConversationStateStore
+
+LOG_DIR = Path(__file__).resolve().parent / ".runtime"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        RotatingFileHandler(LOG_DIR / "app.log", maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"),
+    ],
+)
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +134,8 @@ async def _handle_image(image_url: str, plusfriend_user_key: str) -> str:
         )
         if result.get("success"):
             return "이미지가 예약에 첨부되었습니다 📎"
+
+        logger.warning("Image upload rejected by backend: %s", result)
         return "이미지 업로드에 실패했습니다. 다시 시도해주세요."
     except Exception:
         logger.exception("Image handling failed")
