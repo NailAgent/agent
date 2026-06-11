@@ -141,10 +141,14 @@ Reservia의 구조는 네일샵뿐 아니라 다음과 같은 예약 기반 업�
 
 **경로 A — 고객이 "결제 완료" 메시지 전송 시 (주 경로)**
 
-1. 예약 생성 → `booking_id` state 저장 → 고객에게 결제 링크 전송
+1. 예약 생성 → `booking_id`, `order_id`(`booking_{id}_{timestamp}`) state 저장 → 결제 링크와 함께 "30분 이내 미결제 시 자동 취소" 안내 전송
 2. 고객이 Toss 결제 완료 후 "결제 완료" 메시지 전송
-3. Toss API 직접 조회 (`GET /v1/payments/orders/booking_{id}`)
-4. `status: DONE` 확인 → 결제 확정 응답
+3. Toss API 직접 조회 (`GET /v1/payments/orders/{order_id}`)
+4. `status: DONE`이면 결제 확정 응답
+5. Toss 조회 결과가 없거나 미결제면 백엔드 `payment_status` 조회로 fallback
+   - `PAID` → 결제 확정 응답
+   - `CANCELLED` (30분 내 미결제로 자동 취소됨) → 취소 안내 + "예약 문의"로 재예약 유도
+   - 그 외(`PENDING`) → "아직 결제가 확인되지 않았습니다" 안내
 
 **경로 B — Toss successUrl 리다이렉트 시 (백엔드 처리)**
 
@@ -269,6 +273,7 @@ LangGraph workflow에서는 고객 메시지를 처리하기 위해 다음과 �
 | `is_bookable` | 현재 요청이 예약 가능한 상태인지 여부 |
 | `booking_status` | 예약 상태 |
 | `booking_id` | 예약 생성 후 저장되는 예약 ID (결제 확인에 사용) |
+| `order_id` | Toss 결제 조회용 주문번호 (`booking_{id}_{timestamp}`, 결제 확인에 사용) |
 | `policy_check_results` | 정책 검증 결과 및 조회된 예약 정보 |
 | `next_action` | 다음에 수행해야 할 작업 |
 | `response_draft` | 고객에게 보낼 응답 초안 |
