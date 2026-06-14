@@ -1,7 +1,7 @@
 # Reservia
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/051e66c9-dfa9-4447-81c0-3ad9055032b2" alt="Reservia Logo" width="448" height="280" />
+  <img width="1920" height="1080" alt="Image" src="https://github.com/user-attachments/assets/44778533-d47a-45ec-9e26-4aa194d02dd2" />
 </p>
 
 <p align="center">
@@ -9,7 +9,9 @@
 </p>
 
 <p align="center">
-  <b>Team Nailgent</b> · 🏆 2026 Low-Code AI Challenge Hackathon 3rd place
+  <b>Team Nailgent</b><br/>
+  · 26-1 데이터종합분석 캡스톤 프로젝트<br/>
+  · 🏆 2026 Low-Code AI Challenge Hackathon 3rd place
 </p>
 
 ### Team Nailgent
@@ -208,21 +210,19 @@ flowchart LR
     D --> E[Intake Agent<br/>GPT-4o]
     E --> F[Router]
 
-    F --> G[Greeting]
     F --> H[Inquiry]
     F --> I[Booking Agent]
     F --> J[Cancel Agent]
     F --> K[Change Agent]
     F --> L[Payment Agent]
+    F --> Q[Response]
 
     I --> M[Reservation API]
     I --> N[Policy Engine]
     I --> O[Toss Payments API]
-    I --> P[Google Calendar<br/>구현 예정]
     J --> M
     K --> M
 
-    G --> Q[Response]
     H --> Q
     I --> Q
     J --> Q
@@ -250,14 +250,13 @@ LangGraph는 Reservia의 핵심 자동화 흐름을 연결하는 orchestration l
 | 1 | Kakao Webhook | 고객 메시지 수신 |
 | 2 | FastAPI + LangGraph | 메시지 파싱 및 워크플로우 실행 |
 | 3 | Intake Agent (GPT-4o) | 의도 분류, slot 추출, 기존 고객 DB 보완 |
-| 4 | Router | Greeting, Inquiry, Booking, Cancel, Change, Payment로 분기 |
+| 4 | Router | Inquiry, Booking, Cancel, Change, Payment 노드로 분기 (그 외 intent는 Response로 직행) |
 | 5 | Inquiry Agent | 가격, 운영시간, 정책 등 기타 문의 응대 → 처리 불가 시 SSE로 사장님 알림 |
 | 6 | Booking Agent | 신규 예약 등록 및 가능 여부 확인 + 결제 링크 생성 |
 | 7 | Policy Engine | DB 기반 영업시간·휴무일·시술 소요시간 검증, 예약 가능 여부 판단 |
 | 8 | Payments Flow | 예약 생성 시 결제 링크 발송 → successUrl 리다이렉트 → Toss confirm → 결제 확정 → 백엔드 DB 업데이트 |
-| 9 | Google Calendar | 확정 예약 일정 등록 *(구현 예정)* |
-| 10 | Cancel / Change Agent | 기존 예약 조회 후 취소 또는 변경 처리 |
-| 11 | Response | 고객에게 최종 응답 반환 |
+| 9 | Cancel / Change Agent | 기존 예약 조회 후 취소 또는 변경 처리 |
+| 10 | Response | 고객에게 최종 응답 반환 (Greeting/Unknown 등 fallback intent의 고정 응답 포함) |
 
 ### 6.2 Shared State
 
@@ -294,31 +293,13 @@ Intake Agent는 모든 고객 메시지가 처음 도착하는 진입점입니�
 - 기존 고객 여부 확인
 - 다음 workflow 분기 결정
 
-예시:
+### 7.2 Greeting (intent)
 
-```json
-{
-  "intent": "booking",
-  "slots": {
-    "name": "김지수",
-    "reserve_date": "2026-05-30",
-    "reserve_time": "15:00",
-    "service_code": "GEL_NAIL",
-    "off_removal": true,
-    "past_visit": false
-  },
-  "missing_fields": ["phone_num"],
-  "next_action": "ask_missing_field"
-}
-```
-
-### 7.2 Greeting
-
-처음 방문한 고객 또는 신규 대화에 대해 환영 메시지를 제공합니다.
+별도의 LangGraph 노드가 아니라, Intake Agent가 빈 메시지(예: 카카오톡 채널 추가 시 최초 진입)를 받았을 때 분류하는 intent입니다. Router를 거쳐 Response 노드로 바로 전달되어 고정된 환영 메시지를 반환합니다.
 
 주요 역할:
 
-- 신규 고객 안내
+- 신규 고객 환영 메시지 제공
 - 기본 예약 절차 안내
 - 필요한 정보 입력 유도
 
@@ -345,7 +326,6 @@ Intake Agent는 모든 고객 메시지가 처음 도착하는 진입점입니�
 - 예약 draft 생성
 - 예약금 결제 대기 상태 처리
 - 결제 확인 후 예약 확정
-- Google Calendar 등록
 
 ### 7.5 Cancel Agent
 
@@ -369,126 +349,27 @@ Intake Agent는 모든 고객 메시지가 처음 도착하는 진입점입니�
 - 예약 찾으면 새 날짜/시간만 요청 (이름/전화번호 재요청 없음)
 - 새 시간대 가능 여부 확인 후 예약 정보 수정
 
-### 7.7 Exception Handler
+### 7.7 Exception Handling (cross-cutting)
 
-정상적인 자동 처리 흐름으로 해결하기 어려운 요청을 담당합니다.
+별도의 Exception Handler 노드는 없으며, 예외 상황은 각 노드 내부에서 처리됩니다.
 
-예외 상황 예시:
+- **모호한 요청 (`unknown` intent)**: Router가 Response로 직행 → 고정 안내 메시지 반환 + `notify_owner()`로 사장님에게 SSE 알림
+- **예약 정책과 충돌 / 요청 시간 불가**: Booking·Change Agent가 대체 시간대를 제안
+- **backend error 발생**: 각 Agent가 `booking_status: backend_error`와 `next_action: human_review`(또는 `retry_or_human_review`)를 반환하고, 고객에게는 "확인 후 안내드릴게요" 안내
+- **기존 예약을 찾을 수 없는 경우**: Cancel·Change Agent가 날짜/시간 재질문으로 재요청
+- **이미지/디자인 요청**: 카카오 IMAGE_UPLOAD 트리거 시 이미지를 백엔드에 업로드해 예약에 첨부
 
-- 고객 요청이 너무 모호한 경우
-- 예약 정책과 충돌하는 경우
-- 결제는 되었지만 예약 정보가 불완전한 경우
-- 기존 예약을 찾을 수 없는 경우
-- backend error가 발생한 경우
-- 사람이 직접 판단해야 하는 이미지/디자인 요청인 경우
-
-이 경우 시스템은 무리하게 자동 확정하지 않고 사장님 검토로 넘깁니다.
+자동으로 확정하기 어려운 경우 시스템은 사장님 검토로 넘깁니다.
 
 ---
 
-## 8. Main User Scenarios
-
-### Scenario 1. 신규 예약
-
-```text
-고객: 내일 오후 3시에 젤 제거하고 젤네일 가능해요? 첫방문이고 이름은 김지수예요.
-```
-
-시스템 처리:
-
-1. `booking` intent로 분류
-2. 이름, 날짜, 시간, 시술 옵션, 제거 여부 추출
-3. 전화번호 누락 감지
-4. 고객에게 전화번호 재질문
-5. 예약 가능 시간 확인
-6. 예약금 결제 안내
-7. 결제 확인 후 예약 확정
-8. Google Calendar 등록
-
-### Scenario 2. 예약 시간 불가 및 대체 시간 제안
-
-```text
-고객: 오늘 10시로 예약할게요.
-```
-
-시스템 처리:
-
-1. 요청 시간대 확인
-2. 이미 예약이 있거나 불가능한 시간인지 판단
-3. 가능한 대체 시간대 조회
-4. 고객에게 대체 시간 제안
-
-### Scenario 3. 기타 문의
-
-**Case A. 직접 질문**
-
-```text
-고객: 네일 가격이 궁금해요.
-```
-
-1. `inquiry` intent로 분류
-2. `GET /api/v1/shopinfo`로 샵 정보 조회
-3. LLM이 샵 정보 기반 답변 생성 시도
-4. 정보가 없는 경우 SSE로 사장님 알림 전송 후 대기 안내
-
-**Case B. 트리거 입력 후 실제 질문**
-
-```text
-고객: 기타  (또는 "문의요", "궁금한거 있어요" 등)
-시스템: 궁금하신 점을 남겨주세요! 가격, 영업시간, 예약 정책 등 무엇이든 편하게 문의해 주세요😊
-고객: 젤네일 가격이 얼마예요?
-시스템: (샵 정보 기반 LLM 답변 또는 SSE 알림 후 대기 안내)
-```
-
-### Scenario 4. 예약 취소
-
-```text
-고객: 예약 취소하고 싶어요.
-시스템: 정교은님의 최근 예약 정보입니다.
-        📅 2026-06-15 11:00 / 💅 젤네일
-        이 예약을 취소해드릴까요? (맞아요 / 아니요)
-고객: 맞아요
-시스템: 정교은님의 예약이 취소되었습니다. 😢
-```
-
-시스템 처리:
-
-1. `cancel` intent로 분류
-2. kakao_user_id로 고객 DB 조회 → 이름 자동 보완
-3. 이름으로 미래 예약 중 가장 최근에 생성된 1건 자동 선택
-4. 예약 정보 확인 메시지 출력
-5. 맞아요 → 결제 완료(PAID)면 환불 처리, 미결제면 예약 삭제 / 아니요 → 날짜·시간 재요청
-
-### Scenario 5. 예약 변경
-
-```text
-고객: 예약 변경하고 싶어요.
-시스템: 정교은님의 예약을 찾았습니다.
-        📅 2026-06-15 11:00 젤네일
-        변경 희망 날짜와 시간을 알려주시면 바로 반영하겠습니다.
-고객: 6월 20일 오후 2시로 바꿔주세요.
-시스템: ✅ 예약이 변경되었습니다!
-
-        📅 변경된 일정: 2026-06-20 14:00-15:30
-
-        또 궁금하신 점이 있으면 편하게 말씀해 주세요 😊
-```
-
-시스템 처리:
-
-1. `change` intent로 분류
-2. kakao_user_id로 고객 DB 조회 → 이름 자동 보완
-3. 이름으로 미래 예약 중 가장 최근에 생성된 1건 자동 선택
-4. 새 날짜·시간만 요청 (이름·전화번호 재요청 없음)
-5. 새 시간대 가능 여부 확인 후 예약 정보 수정
-
----
-
-## 9. Frontend Dashboard
+## 8. Frontend Dashboard
 
 Reservia는 고객 응대 자동화뿐 아니라, 사장님이 예약과 샵 정보를 관리할 수 있는 dashboard를 제공합니다.
 
-### 9.1 Shop Info Management
+🔗 [https://reservia-five.vercel.app/](https://reservia-five.vercel.app/)
+
+### 8.1 Shop Info Management
 
 사장님은 다음 정보를 직접 등록하거나 수정할 수 있습니다.
 
@@ -501,13 +382,11 @@ Reservia는 고객 응대 자동화뿐 아니라, 사장님이 예약과 샵 정
 - 정책 안내
 - 가격표/안내문 이미지
 
-Document Parsing을 통해 가격표 이미지를 업로드하면, 시스템이 텍스트 정보를 추출하여 고객 응대에 활용할 수 있습니다.
-
-### 9.2 Customer Management
+### 8.2 Customer Management
 
 고객 탭에서는 고객 이름, 전화번호, 예약 이력, 노쇼 여부 등을 관리할 수 있습니다.
 
-### 9.3 Reservation Management
+### 8.3 Reservation Management
 
 예약 탭에서는 예약 목록과 예약 상태를 확인합니다.
 
@@ -520,13 +399,17 @@ Document Parsing을 통해 가격표 이미지를 업로드하면, 시스템이 
 - 예약 상태
 - 고객이 업로드한 네일 디자인 이미지
 
-### 9.4 Schedule Management
+### 8.4 Schedule Management
 
 일정 탭에서는 Google Calendar와 연동된 예약 일정을 확인할 수 있습니다. 확정된 예약은 캘린더에 자동 등록되어 사장님이 실시간으로 확인할 수 있습니다.
 
+### 8.5 실시간 알림 (SSE)
+
+Agent가 자동으로 응답하기 어려운 상황(샵 정보로 답변 불가한 기타 문의, 의도를 파악할 수 없는 메시지 등)이 발생하면 `POST /api/v1/sse/notify`를 호출해 백엔드에 알립니다. 백엔드는 이를 SSE로 대시보드에 push하여, 사장님이 별도 새로고침 없이 "ooo 고객이 응답을 기다리고 있습니다" 알림을 실시간으로 확인하고 직접 응대할 수 있습니다 (human-in-the-loop).
+
 ---
 
-## 10. Backend & Integrations
+## 9. Backend & Integrations
 
 Reservia는 다음 외부 시스템과 연동됩니다.
 
@@ -539,11 +422,12 @@ Reservia는 다음 외부 시스템과 연동됩니다.
 | Policy Engine | 영업시간, 예약 가능 여부, 예외 조건 판단 |
 | Toss Payments API | 예약금 결제 확인 |
 | Google Calendar API | 확정 예약 일정 등록 |
+| SSE Notification | 처리 불가/모호한 문의 발생 시 사장님에게 실시간 알림 |
 | Frontend Dashboard | 사장님용 관리 화면 제공 |
 
 ---
 
-## 11. MVP Scope
+## 10. MVP Scope
 
 ### In Scope
 
@@ -569,7 +453,7 @@ Reservia는 다음 외부 시스템과 연동됩니다.
 
 ---
 
-## 12. Future Work
+## 11. Future Work
 
 - 네일샵 외 예약 업종 확장
 - 업종별 정책 템플릿 제공
