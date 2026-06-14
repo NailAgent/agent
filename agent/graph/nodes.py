@@ -8,10 +8,10 @@ from urllib.parse import urlencode
 
 from agent.agents.constants import (
     BOOKING_FORM_GUIDE,
-    BOOKING_MISSING_DATETIME_MESSAGE,
     CANCEL_MESSAGE,
     CHANGE_MESSAGE,
     INQUIRY_FALLBACK_MESSAGE,
+    MISSING_RESERVATION_DATETIME_MESSAGE,
     PAYMENT_MESSAGE,
     PAYMENT_TIMEOUT_CANCELLED_MESSAGE,
     PAYMENT_TIMEOUT_NOTICE,
@@ -114,7 +114,7 @@ def _resolve_intent_with_pending(state: ReservationState, current_intent: str) -
 
 
 def build_non_booking_response(intent: str) -> str:
-    """예약 외 intent에 대한 v1 고정 응답 반환."""
+    """intent별 고정 안내 메시지 반환 (각 노드의 guard 절 및 response_node의 기본 fallback)."""
 
     responses = {
         "greeting": WELCOME_MESSAGE,
@@ -461,7 +461,7 @@ def booking_node(state: ReservationState):
     slots, _customer_lookup = _enrich_slots_with_customer(slots, state)
 
     if not slots or not slots.reserve_date or not slots.reserve_time:
-        draft = state.get("response_draft") or BOOKING_MISSING_DATETIME_MESSAGE
+        draft = state.get("response_draft") or MISSING_RESERVATION_DATETIME_MESSAGE
         return {
             "is_bookable": False,
             "booking_status": "N/A",

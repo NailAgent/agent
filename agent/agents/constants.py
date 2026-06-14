@@ -76,13 +76,4 @@ UNKNOWN_FALLBACK_MESSAGE = """
 예약 문의, 예약 변경, 예약 취소, 기타 문의 중 어떤 요청인지 알려주세요.
 """
 
-# legacy aliases: 기존 변수명을 안전하게 유지
-CHANGE_FALLBACK_MESSAGE = CHANGE_MESSAGE
-CANCEL_FALLBACK_MESSAGE = CANCEL_MESSAGE
-PAYMENT_FALLBACK_MESSAGE = PAYMENT_MESSAGE
-
-# 방어용 fallback 메시지(생략 가능)
 MISSING_RESERVATION_DATETIME_MESSAGE = "예약 희망 날짜와 시간을 알려주세요."
-
-# legacy alias: nodes.py의 기존 오타/참조를 안전하게 흡수
-BOOKING_MISSING_DATETIME_MESSAGE = MISSING_RESERVATION_DATETIME_MESSAGE

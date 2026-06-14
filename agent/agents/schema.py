@@ -19,11 +19,11 @@ class Intent(str, Enum):
     """Allowed intent labels returned by the Intake Agent."""
 
     GREETING = "greeting"  # 인삿말 출력
-    BOOKING = "booking"  # v1 실제 구현
+    BOOKING = "booking"  # 예약 생성 처리
     INQUIRY = "inquiry"  # 고정 안내 응답
-    CHANGE = "change"  # v1 미구현
-    CANCEL = "cancel"  # v1 미구현
-    PAYMENT = "payment"  # v1 미구현
+    CHANGE = "change"  # 예약 변경 처리
+    CANCEL = "cancel"  # 예약 취소 처리
+    PAYMENT = "payment"  # 결제 확인 처리
     UNKNOWN = "unknown"  # 재질문
 
 
