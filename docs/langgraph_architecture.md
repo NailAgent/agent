@@ -5,7 +5,7 @@
 핵심 관찰:
 - 그래프 진입점은 `intake` 하나입니다.
 - 조건부 분기는 `add_conditional_edges("intake", route_after_intake, ...)` 에만 있습니다.
-- `booking`, `change`, `cancel`, `payment` 는 모두 마지막에 `response` 로 합류합니다.
+- `inquiry`, `booking`, `change`, `cancel`, `payment` 는 모두 마지막에 `response` 로 합류합니다.
 - 코드의 실제 state key 는 문서/기획 용어와 조금 다릅니다.
   - `missing_slots` 개념은 코드에서 `missing_fields`
   - `policy_flags` 개념은 코드에서 `policy_check_results`
@@ -25,20 +25,22 @@ flowchart LR
     I -->|intent=change| C[change]
     I -->|intent=cancel| X[cancel]
     I -->|intent=payment| P[payment]
-    I -->|greeting / inquiry / unknown / others| R
+    I -->|intent=inquiry| Q[inquiry]
+    I -->|greeting / unknown / others| R
 
     B --> R
     C --> R
     X --> R
     P --> R
+    Q --> R
     R --> E[END]
 ```
 
 ### 라우팅 규칙
 - `route_after_intake()` 가 `intent` 와 `missing_fields` 를 보고 다음 노드를 결정합니다.
 - `booking` 인 경우에만 `missing_fields == []` 이면 `booking` 으로 진행하고, 아니면 바로 `response` 로 갑니다.
-- `change`, `cancel`, `payment` 는 각각 전용 노드로 분기합니다.
-- `greeting`, `inquiry`, `unknown` 은 모두 `response` 로 갑니다.
+- `change`, `cancel`, `payment`, `inquiry` 는 각각 전용 노드로 분기합니다.
+- `greeting`, `unknown` 은 바로 `response` 로 갑니다.
 
 ---
 
@@ -51,6 +53,7 @@ flowchart LR
 
 ### 노드 정의
 - `intake`
+- `inquiry`
 - `booking`
 - `change`
 - `cancel`
@@ -58,7 +61,8 @@ flowchart LR
 - `response`
 
 ### edge 정의
-- `intake -> {response|booking|change|cancel|payment}` 는 conditional edge
+- `intake -> {response|inquiry|booking|change|cancel|payment}` 는 conditional edge
+- `inquiry -> response`
 - `booking -> response`
 - `change -> response`
 - `cancel -> response`
@@ -162,7 +166,28 @@ Intake Agent 는 `BookingSlots` 에 다음 값을 채웁니다.
 - booking 이고 `missing_count > 0` 이면 follow-up 질문
 - booking 이고 필수 정보가 충분하면 `next_action="validate_booking"`
 
-### 5.2 `booking_node`
+### 5.2 `inquiry_node`
+파일:
+- [nodes.py](agent/graph/nodes.py)
+
+역할:
+- `InquiryAgent` 로 사용자 입력과 shop info 를 분석한다.
+- 질문 의사만 있고 구체적인 질문이 없으면(`is_trigger`) follow-up 질문을 반환한다.
+- shop info 로 답변 가능하면(`answered`) 해당 답변을 반환한다.
+- 둘 다 아니면 고정 안내 문구(`INQUIRY_FALLBACK_MESSAGE`)를 반환하고 `notify_owner()` 로 사장님에게 실시간 알림을 보낸다 (human-in-the-loop).
+
+업데이트하는 key:
+- `booking_status`
+- `next_action`
+- `response_draft`
+- `pending_intent` / `pending_missing_fields` / `pending_followup_question`
+
+상태 흐름:
+- `is_trigger=True`: `next_action="ask_followup"`
+- `answered=True`: `next_action="respond_only"`
+- 그 외: `next_action="respond_only"` + `notify_owner(waiting=True)`
+
+### 5.3 `booking_node`
 파일:
 - [nodes.py](/home/sallysooo/Desktop/Nailgent/agent/agent/graph/nodes.py#L132)
 
@@ -187,7 +212,7 @@ Intake Agent 는 `BookingSlots` 에 다음 값을 채웁니다.
 - 정책 통과 시 `booking_status="pending_payment"`
 - 정책 실패 시 `booking_status="rejected"`
 
-### 5.3 `change_node`
+### 5.4 `change_node`
 파일:
 - [nodes.py](/home/sallysooo/Desktop/Nailgent/agent/agent/graph/nodes.py#L265)
 
@@ -209,7 +234,7 @@ Intake Agent 는 `BookingSlots` 에 다음 값을 채웁니다.
 - 변경 성공: `booking_status="updated"`
 - 변경 실패: `booking_status="backend_error"`
 
-### 5.4 `cancel_node`
+### 5.5 `cancel_node`
 파일:
 - [nodes.py](agent/graph/nodes.py)
 
@@ -230,14 +255,14 @@ Intake Agent 는 `BookingSlots` 에 다음 값을 채웁니다.
 - 취소 성공: `booking_status="cancelled"`
 - 취소 실패: `booking_status="backend_error"`
 
-### 5.5 `payment_node`
+### 5.6 `payment_node`
 파일:
 - [nodes.py](agent/graph/nodes.py)
 
 역할:
 - name 없으면 즉시 성함 요청 followup 반환.
-- `GET /api/v1/bookings` 로 전체 예약 조회 후 이름으로 필터.
-- 가장 최근 예약의 `payment_status == "PAID"` 여부로 고정 메시지 반환.
+- `state["order_id"]` 와 `TOSS_SECRET_KEY` 가 있으면 Toss API (`GET /v1/payments/orders/{order_id}`)를 직접 조회해 `status == "DONE"` 인지 먼저 확인한다.
+- Toss 조회로 결제 확인이 안 되면 백엔드 `GET /api/v1/bookings` 전체 조회 후 (booking_id 있으면 해당 건, 없으면 이름 기준 최신 예약의) `payment_status` 를 fallback 으로 확인한다.
 
 업데이트하는 key:
 - `booking_status`
@@ -246,10 +271,11 @@ Intake Agent 는 `BookingSlots` 에 다음 값을 채웁니다.
 
 상태 흐름:
 - name 없음: 성함 요청 `ask_followup`
-- 결제 확인: `booking_status="payment_confirmed"`, "✅ 결제가 확인되었습니다!"
-- 미결제: `booking_status="pending_payment"`, "⚠️ 아직 결제가 확인되지 않았습니다."
+- 결제 확인(Toss `DONE` 또는 백엔드 `payment_status=="PAID"`): `booking_status="payment_confirmed"`, "✅ 결제가 확인되었습니다!"
+- `payment_status=="CANCELLED"` (30분 내 미결제로 자동 취소됨): `booking_status="cancelled"`, `PAYMENT_TIMEOUT_CANCELLED_MESSAGE` (재예약 안내)
+- 그 외(`PENDING` 등): `booking_status="pending_payment"`, "⚠️ 아직 결제가 확인되지 않았습니다."
 
-### 5.6 `response_node`
+### 5.7 `response_node`
 파일:
 - [nodes.py](/home/sallysooo/Desktop/Nailgent/agent/agent/graph/nodes.py#L424)
 
@@ -315,16 +341,17 @@ flowchart TD
     I -->|change| C[change]
     I -->|cancel| X[cancel]
     I -->|payment| P[payment]
+    I -->|inquiry| Q[inquiry]
     I -->|booking| B{missing_fields?}
-    I -->|greeting / inquiry / unknown / others| R[response]
+    I -->|greeting / unknown / others| R[response]
     B -->|yes| R
     B -->|no| BK[booking]
 ```
 
 ### 해석
-- `change`, `cancel`, `payment` 는 intent 만으로 바로 전용 노드로 갑니다.
+- `change`, `cancel`, `payment`, `inquiry` 는 intent 만으로 바로 전용 노드로 갑니다.
 - `booking` 은 missing field 유무가 추가 조건입니다.
-- 그 외 intent 는 모두 `response` 로 정리됩니다.
+- 그 외 intent(`greeting`, `unknown` 등)는 모두 `response` 로 정리됩니다.
 
 ---
 
@@ -463,18 +490,21 @@ flowchart TD
 
 ### change / cancel / payment flow
 1. `intake_node()` 가 intent 를 분류한다.
-2. 전용 노드가 `find_reservations()` 로 대상 예약을 찾는다.
-3. 현재 코드에서는 실제 수정/취소/입금 확정 API 를 호출하지 않고, 사장님 확인 메시지로 정리한다.
-4. 관련 후보는 `policy_check_results.matched_reservations` 에 저장된다.
+2. `change`/`cancel` 전용 노드가 `find_reservations()` 로 대상 예약을 찾고, 후보가 여러 건이거나 모호하면 먼저 확인 질문을 한다.
+3. `change_node` 는 새 일정에 대해 `PolicyEngine` 검증을 통과하면 `PATCH /api/v1/bookings/{id}` 로 실제 변경한다.
+4. `cancel_node` 는 (결제 완료 건이면 `POST /api/v1/payments/{id}/refund` 후) `DELETE /api/v1/bookings/{id}` 로 실제 취소한다.
+5. `payment_node` 는 Toss API 직접 조회 후 필요하면 백엔드 `payment_status` 를 확인해 결제 확정 여부를 응답한다.
+6. 매칭/후보 정보는 `policy_check_results.matched_reservation(s)` 에 저장된다.
 
 ---
 
 ## 11. 발표용 요약
 
 - **Intake Agent** 는 `name`, `phone_num`, `off_removal`, `reserve_date`, `reserve_time`, `service_code`, `past_visit` 를 수집합니다.
+- **Inquiry** 는 `InquiryAgent` 로 shop info 기반 답변 가능 여부를 판단하고, 답변이 어려우면 `notify_owner()` 로 사장님에게 실시간 알림을 보냅니다.
 - **Booking** 은 shop info + schedule + policy engine + reservation create 까지 담당합니다.
 - **Change / Cancel** 는 백엔드 PATCH/DELETE API 를 호출해 실제 변경/취소를 처리합니다. name 없으면 성함부터 요청합니다.
-- **Payment** 는 `GET /api/v1/bookings` 로 결제 상태를 조회해 고정 메시지를 반환합니다. Toss 웹훅 연동 시 자동화 예정입니다.
+- **Payment** 는 Toss API 직접 조회(`GET /v1/payments/orders/{order_id}`) 후 필요하면 백엔드 `payment_status`(PAID/CANCELLED/PENDING)로 fallback 합니다. Toss 웹훅(`/toss/webhook`)을 통한 백엔드 결제 상태 갱신도 이미 연동되어 있습니다.
 - **Policy engine** 은 영업시간, 휴무일, 시간 충돌, 대체 시간 추천을 맡습니다.
 - **실제 branching 은 intake 후 1회** 만 있습니다.
 - **핵심 상태 키** 는 `intent`, `slots`, `missing_fields`, `booking_status`, `next_action`, `policy_check_results`, `response_draft` 입니다.
