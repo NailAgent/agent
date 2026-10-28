@@ -14,6 +14,9 @@
   · 🏆 2026 Low-Code AI Challenge Hackathon 3rd place
 </p>
 
+> 네일샵 AI 예약 자동화 서비스 **Reservia**의 메인 레포입니다. LangGraph 기반으로 재구현한 프로덕션 버전입니다.
+> 대회 당시 n8n으로 만든 출품용 워크플로우는 [NailAgent/n8n](https://github.com/NailAgent/n8n) 참고.
+
 ### Team Nailgent
 
 | Role | Name | GitHub |
