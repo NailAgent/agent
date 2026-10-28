@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -8,6 +9,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from agent.agents.schema import BookingSlots
 from agent.tools.conversation_store import ConversationStateStore
+from agent.tools.policy_engine import PolicyEngine
 
 
 def test_conversation_store_roundtrip(tmp_path: Path) -> None:
@@ -16,7 +18,7 @@ def test_conversation_store_roundtrip(tmp_path: Path) -> None:
         name="김지수",
         phone_num="010-1234-5678",
         off_removal=True,
-        reserve_date="2026-05-20",
+        reserve_date=(PolicyEngine.now().date() + timedelta(days=30)).isoformat(),
         reserve_time="17:00",
         service_code="GEL_NAIL",
         past_visit=False,

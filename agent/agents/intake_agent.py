@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -11,14 +10,15 @@ from langchain_openai import ChatOpenAI
 
 from agent.agents.schema import IntakeResult
 from agent.agents.intake_agent_deterministic import deterministic_intake
+from agent.tools.policy_engine import PolicyEngine
 
 # 환경 변수 로드
 load_dotenv()
 
 
 def get_current_date() -> str:
-    """Return today's local date string for relative date parsing."""
-    return datetime.now().strftime("%Y-%m-%d (%A)")
+    """Return today's date string (Korea time) for relative date parsing."""
+    return PolicyEngine.now().strftime("%Y-%m-%d (%A)")
 
 
 FEW_SHOT_EXAMPLES = """

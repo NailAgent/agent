@@ -52,8 +52,7 @@ def _exclude_cancelled(candidates: list[dict]) -> list[dict]:
 
 def _pick_nearest_future(candidates: list[dict]) -> dict | None:
     """미래 예약 중 가장 최근에 생성된 1건 반환 (취소된 건 제외)."""
-    from datetime import date
-    today = date.today().isoformat()
+    today = PolicyEngine.now().date().isoformat()
     future = [
         c for c in _exclude_cancelled(candidates)
         if str(c.get("reserve_date", "")) >= today
@@ -176,7 +175,7 @@ def _service_code_from_display_name(service_name: str | None) -> str | None:
 
 def _resolve_relative_date_token(token: str) -> str:
     if token in _RELATIVE_DATE_OFFSETS:
-        return (datetime.now().date() + timedelta(days=_RELATIVE_DATE_OFFSETS[token])).strftime("%Y-%m-%d")
+        return (PolicyEngine.now().date() + timedelta(days=_RELATIVE_DATE_OFFSETS[token])).strftime("%Y-%m-%d")
     return token
 
 
@@ -592,7 +591,9 @@ def booking_node(state: ReservationState):
     if is_closed_day:
         rec_block = "다른 날짜로 예약 형식을 다시 작성해서 보내주시면 확인해드리겠습니다 😊"
     else:
-        recommendations = PolicyEngine.get_available_recommendations(schedule["business_hours"], schedule["booked_slots"], duration)
+        recommendations = PolicyEngine.get_available_recommendations(
+            schedule["business_hours"], schedule["booked_slots"], duration, date_str=slots.reserve_date
+        )
         if recommendations:
             rec_text = "\n".join(f"• {item}" for item in recommendations)
             rec_block = f"대신 현재 예약 가능한 시간대는 다음과 같습니다.\n{rec_text}"
@@ -754,15 +755,23 @@ def change_node(state: ReservationState):
     matched_reserve_time = str(matched.get("reserve_time", ""))
     booked_slots = [slot for slot in schedule["booked_slots"] if str(slot.get("reserve_time", "")) != matched_reserve_time]
 
+    # 휴무일은 예약 생성과 같은 기준(샵 정보)으로 판단한다. 조회에 실패하면 기본값(월요일)
+    shop_info = backend_client.get_shop_info()
     validation = PolicyEngine.validate_reservation(
         new_reserve_date,
         new_reserve_time,
         duration_min,
         booked_slots,
         business_hours=schedule["business_hours"],
+        closed_days=shop_info.get("closed_days"),
     )
     if not validation["valid"]:
-        recommendations = PolicyEngine.get_available_recommendations(schedule["business_hours"], booked_slots, duration_min)
+        if "휴무" in validation["reason"]:
+            recommendations = []  # 휴무일에는 시간을 추천하지 않는다
+        else:
+            recommendations = PolicyEngine.get_available_recommendations(
+                schedule["business_hours"], booked_slots, duration_min, date_str=new_reserve_date
+            )
         rec_text = " / ".join(recommendations) if recommendations else "추천 가능한 시간대를 찾지 못했습니다."
         return {
             "booking_status": "rejected",

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -19,6 +19,26 @@ load_dotenv(PROJECT_ROOT / ".env")
 from agent.agents.schema import BookingSlots
 from agent.graph.workflow import app
 from agent.tools.backend_client import BackendClient
+from agent.tools.policy_engine import PolicyEngine
+
+
+def upcoming(weekday: int, weeks_ahead: int = 1) -> str:
+    """오늘(한국 시각) 기준 weeks_ahead주 뒤 그 주의 해당 요일 날짜 (0=월요일).
+
+    테스트 날짜가 시간이 지나 과거 날짜가 되지 않도록 실행할 때마다 계산한다.
+    """
+    today = PolicyEngine.now().date()
+    week_start = today - timedelta(days=today.weekday()) + timedelta(weeks=weeks_ahead)
+    return (week_start + timedelta(days=weekday)).isoformat()
+
+
+# 예전에 고정돼 있던 날짜(2026-05-xx)와 같은 요일을 쓴다
+SCHEDULE_DATE = upcoming(3)  # 목요일, 스케줄 조회
+EXISTING_DATE = upcoming(2)  # 수요일, 변경·입금 문의에서 말하는 기존 예약
+CANCEL_DATE = upcoming(3)  # 목요일, 취소할 예약
+CHANGE_TO_DATE = upcoming(4)  # 금요일, 변경 희망 날짜
+BOOKING_DATE = upcoming(2, weeks_ahead=2)  # 그다음 주 수요일, 신규 예약
+MONDAY_DATE = upcoming(0)  # 월요일, 휴무일 거절
 
 
 STRICT_ASSERT = True
@@ -139,7 +159,7 @@ def backend_smoke() -> None:
     assert shop_info.get("services_price"), shop_info
     assert shop_info.get("service_durations"), shop_info
 
-    schedule = BackendClient.get_schedule("2026-05-07")
+    schedule = BackendClient.get_schedule(SCHEDULE_DATE)
     print("schedule:", schedule)
     assert schedule.get("success") is True, schedule
     assert schedule.get("business_hours"), schedule
@@ -155,7 +175,7 @@ def backend_smoke() -> None:
     slots = BookingSlots(
         name="테스트고객",
         phone_num="010-9999-0000",
-        reserve_date="2026-05-20",
+        reserve_date=BOOKING_DATE,
         reserve_time="16:00",
         service_code="GEL_NAIL",
         off_removal=True,
@@ -205,10 +225,10 @@ def main() -> None:
         ),
         Case(
             name="3. booking missing name",
-            message="""
+            message=f"""
             - *전화번호: 010-1234-5678
             - *젤제거 유무: O
-            - *예약 희망 날짜: 2026-05-20
+            - *예약 희망 날짜: {BOOKING_DATE}
             - *예약 희망 시간: 17:00
             - *원하시는 시술 종류: 젤네일
             - *과거 방문경험: X
@@ -220,9 +240,9 @@ def main() -> None:
         ),
         Case(
             name="4. booking with kakao identity",
-            message="""
+            message=f"""
             - *젤제거 유무: O
-            - *예약 희망 날짜: 2026-05-20
+            - *예약 희망 날짜: {BOOKING_DATE}
             - *예약 희망 시간: 16:00
             - *원하시는 시술 종류: 젤네일
             - *과거 방문경험: X
@@ -239,27 +259,28 @@ def main() -> None:
         ),
         Case(
             name="5. monday booking rejected",
-            message="""
+            message=f"""
             - *성함: 이민호
             - *전화번호: 010-9999-8888
             - *젤제거 유무: X
-            - *예약 희망 날짜: 2024-05-06
-            - *예약 희망 시간: 14:00
+            - *예약 희망 날짜: {MONDAY_DATE}
+            - *예약 희망 시간: 16:00
             - *원하시는 시술 종류: 젤네일
             - *과거 방문경험: O
             """,
             expected_intent="booking",
             expected_status="rejected",
             expected_next_action="notify_failure",
-            expected_response_contains=["월요일", "예약 가능한 시간대"],
+            # mock 스케줄의 기존 예약(11:00, 14:00)과 겹치지 않는 시간이라, 휴무일 때문에만 거절된다
+            expected_response_contains=["해당 요일은 휴무일입니다", "월요일"],
         ),
         Case(
             name="6. booking pending payment",
-            message="""
+            message=f"""
             - *성함: 김지수
             - *전화번호: 010-1234-5678
             - *젤제거 유무: O
-            - *예약 희망 날짜: 2026-05-20
+            - *예약 희망 날짜: {BOOKING_DATE}
             - *예약 희망 시간: 17:00
             - *원하시는 시술 종류: 젤네일
             - *과거 방문경험: X
@@ -279,7 +300,7 @@ def main() -> None:
         ),
         Case(
             name="8. change pending_review",
-            message="남민서 2026-05-13 14:00 아트네일 예약 변경하고 싶어요",
+            message=f"남민서 {EXISTING_DATE} 14:00 아트네일 예약 변경하고 싶어요",
             expected_intent="change",
             expected_status="pending_review",
             expected_next_action="ask_followup",
@@ -287,11 +308,11 @@ def main() -> None:
         ),
         Case(
             name="9. change actual update",
-            message="남민서 2026-05-13 14:00 2026-05-15 16:00 아트네일 예약 변경하고 싶어요",
+            message=f"남민서 {EXISTING_DATE} 14:00 {CHANGE_TO_DATE} 16:00 아트네일 예약 변경하고 싶어요",
             expected_intent="change",
             expected_status="updated",
             expected_next_action="notify_success",
-            expected_response_contains=["기존 예약이 변경되었습니다", "예약자: 남민서", "2026-05-15 16:00-17:30"],
+            expected_response_contains=["기존 예약이 변경되었습니다", "예약자: 남민서", f"{CHANGE_TO_DATE} 16:00-17:30"],
         ),
         Case(
             name="10. cancel follow-up",
@@ -303,7 +324,7 @@ def main() -> None:
         ),
         Case(
             name="11. cancel actual",
-            message="김지수 2026-05-14 13:00 페디큐어 예약 취소하고 싶어요",
+            message=f"김지수 {CANCEL_DATE} 13:00 페디큐어 예약 취소하고 싶어요",
             expected_intent="cancel",
             expected_status="cancelled",
             expected_next_action="notify_success",
@@ -311,7 +332,7 @@ def main() -> None:
         ),
         Case(
             name="12. payment follow-up",
-            message="정교은 2026-05-13 11:00 젤네일 입금했어요",
+            message=f"정교은 {EXISTING_DATE} 11:00 젤네일 입금했어요",
             expected_intent="payment",
             expected_status="pending_payment",
             expected_next_action="notify_failure",

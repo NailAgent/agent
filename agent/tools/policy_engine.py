@@ -1,12 +1,15 @@
 from datetime import datetime, time
+from zoneinfo import ZoneInfo
 
 
 class PolicyEngine:
     """Engine that deterministic business rules of nail shop"""
 
+    SHOP_TZ = ZoneInfo("Asia/Seoul")  # 서버 시간대와 무관하게 샵 기준(한국) 시각으로 판단
     OPENING_HOUR = time(10, 0)
     CLOSING_HOUR = time(22, 0)
-    CLOSED_DAYS = [0]  # 0 = Monday (fallback)
+    CLOSED_DAYS = [0]  # Python weekday 0 = Monday (샵 정보에 휴무일 값이 없을 때)
+    WEEKDAY_NAMES = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
 
     SERVICE_DURATIONS = {
         "GEL_BASIC": 30,
@@ -17,14 +20,24 @@ class PolicyEngine:
 
     @classmethod
     def _parse_closed_days(cls, closed_days) -> list[int]:
-        """shop_info의 closed_days를 정수 리스트로 변환. DB는 단일 int로 반환."""
+        """shop_info의 closed_days(백엔드 값)를 Python weekday 리스트(0=월요일)로 바꾼다.
+
+        백엔드는 1=월요일로 저장한다 (data.sql·API 예시 기준). 일요일을 0(JavaScript getDay)으로 저장하든
+        7(ISO)로 저장하든 (값 - 1) % 7이면 같은 요일이 되므로 어느 쪽이어도 맞게 읽는다.
+        DB는 단일 int로 반환하지만 여러 요일(list)도 받는다.
+        """
         if closed_days is None:
             return cls.CLOSED_DAYS
-        if isinstance(closed_days, int):
-            return [closed_days]
-        if isinstance(closed_days, list):
-            return [int(d) for d in closed_days]
-        return cls.CLOSED_DAYS
+        values = closed_days if isinstance(closed_days, list) else [closed_days]
+        try:
+            return [(int(d) - 1) % 7 for d in values]
+        except (TypeError, ValueError):
+            return cls.CLOSED_DAYS
+
+    @classmethod
+    def closed_day_names(cls, closed_days) -> str:
+        """closed_days(백엔드 값)를 "월요일" / "월요일, 일요일" 같은 안내용 문자열로 바꾼다."""
+        return ", ".join(cls.WEEKDAY_NAMES[d] for d in sorted(set(cls._parse_closed_days(closed_days))))
 
     @classmethod
     def _parse_service_durations(cls, service_durations) -> dict[str, int]:
@@ -60,6 +73,20 @@ class PolicyEngine:
         return t.hour * 60 + t.minute
 
     @classmethod
+    def now(cls) -> datetime:
+        """샵 기준(한국) 현재 시각."""
+        return datetime.now(cls.SHOP_TZ)
+
+    @classmethod
+    def _to_shop_time(cls, now: datetime | None) -> datetime:
+        """비교 기준 시각을 한국 시각으로 맞춘다. 시간대 없는 값은 한국 시각으로 본다."""
+        if now is None:
+            return cls.now()
+        if now.tzinfo is None:
+            return now.replace(tzinfo=cls.SHOP_TZ)
+        return now.astimezone(cls.SHOP_TZ)
+
+    @classmethod
     def validate_reservation(
         cls,
         date_str: str,
@@ -68,6 +95,7 @@ class PolicyEngine:
         booked_slots: list,
         business_hours: dict | None = None,
         closed_days=None,
+        now: datetime | None = None,
     ) -> dict:
         """Validate reservation time against business rules and existing bookings."""
         if not date_str or not time_str:
@@ -78,6 +106,13 @@ class PolicyEngine:
             req_start_time = datetime.strptime(time_str, "%H:%M").time()
             req_start_min = cls.time_to_minutes(req_start_time)
             req_end_min = req_start_min + duration
+
+            # 0. 지난 날짜·시각 확인 (한국 시각 기준)
+            current = cls._to_shop_time(now)
+            if req_date.date() < current.date():
+                return {"valid": False, "reason": "이미 지난 날짜입니다."}
+            if req_date.date() == current.date() and req_start_min <= cls.time_to_minutes(current.time()):
+                return {"valid": False, "reason": "이미 지난 시간입니다."}
 
             # 1. 휴무일 확인 (DB 값 우선)
             closed = cls._parse_closed_days(closed_days)
@@ -113,10 +148,33 @@ class PolicyEngine:
             return {"valid": False, "reason": "날짜 또는 시간 형식이 잘못되었습니다."}
 
     @classmethod
-    def get_available_recommendations(cls, business_hours: dict, booked_slots: list, duration: int) -> list:
-        """Finds available time slots by looking for gaps."""
+    def get_available_recommendations(
+        cls,
+        business_hours: dict,
+        booked_slots: list,
+        duration: int,
+        date_str: str | None = None,
+        now: datetime | None = None,
+    ) -> list:
+        """Finds available time slots by looking for gaps.
+
+        date_str를 주면 지난 날짜는 추천하지 않고, 오늘이면 지금 이후 시간만 추천한다 (한국 시각 기준).
+        """
         open_min = cls.time_to_minutes(datetime.strptime(business_hours["start"], "%H:%M").time())
         close_min = cls.time_to_minutes(datetime.strptime(business_hours["end"], "%H:%M").time())
+
+        earliest_start = open_min
+        if date_str:
+            try:
+                req_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            except ValueError:
+                req_date = None
+            if req_date:
+                current = cls._to_shop_time(now)
+                if req_date < current.date():
+                    return []
+                if req_date == current.date():
+                    earliest_start = max(open_min, cls.time_to_minutes(current.time()) + 1)
 
         timeline = [0] * (close_min - open_min)
         for slot in booked_slots:
@@ -132,7 +190,7 @@ class PolicyEngine:
                 count += 1
                 if count >= duration:
                     start_min = i - duration + 1 + open_min
-                    if start_min % 30 == 0:
+                    if start_min % 30 == 0 and start_min >= earliest_start:
                         rec_time = f"{start_min // 60:02d}:{start_min % 60:02d}"
                         recommendations.append(rec_time)
             else:

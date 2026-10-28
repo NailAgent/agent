@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 
 from agent.agents.schema import BookingSlots, Intent, IntakeResult
+from agent.tools.policy_engine import PolicyEngine
 
 
 def _extract_first(pattern: str, text: str, flags: int = re.IGNORECASE) -> Optional[str]:
@@ -37,7 +38,7 @@ def _parse_bool_from_text(text: str, positive_patterns: list[str], negative_patt
 
 
 def _resolve_relative_date(text: str) -> Optional[str]:
-    today = datetime.now().date()
+    today = PolicyEngine.now().date()
     normalized = text.replace(" ", "")
     relative_map = {"오늘": 0, "내일": 1, "모레": 2}
     for keyword, delta in relative_map.items():

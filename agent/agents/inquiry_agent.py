@@ -8,6 +8,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
+from agent.tools.policy_engine import PolicyEngine
+
 load_dotenv()
 
 
@@ -25,8 +27,7 @@ def _format_shop_context(shop_info: dict[str, Any]) -> str:
 
     closed = shop_info.get("closed_days")
     if closed is not None:
-        day_map = {0: "월요일", 1: "화요일", 2: "수요일", 3: "목요일", 4: "금요일", 5: "토요일", 6: "일요일"}
-        lines.append(f"- 정기휴무: {day_map.get(closed, str(closed))}")
+        lines.append(f"- 정기휴무: {PolicyEngine.closed_day_names(closed)}")
 
     if shop_info.get("services_price"):
         try:
