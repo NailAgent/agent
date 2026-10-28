@@ -352,7 +352,9 @@ def intake_node(state: ReservationState):
             "response_draft": WELCOME_MESSAGE,
         }
 
-    result = intake_agent.run(user_input)
+    # 예약 정보를 묻는 중이면 그 질문을 함께 넘겨서 짧은 답을 질문의 답으로 읽게 한다
+    pending_question = state.get("pending_followup_question") if state.get("pending_intent") == "booking" else None
+    result = intake_agent.run(user_input, pending_question=pending_question)
     current_intent = _intent_to_str(result.intent)
     intent = _resolve_intent_with_pending(state, current_intent)
 
@@ -735,9 +737,13 @@ def change_node(state: ReservationState):
             "policy_check_results": {"matched_reservation": matched},
         }
 
+    # 시술 시간과 휴무일은 예약 생성과 같은 기준(샵 정보)으로 판단한다. 조회에 실패하면 기본값
+    shop_info = backend_client.get_shop_info()
     service_code = _service_code_from_display_name(matched.get("service"))
     off_removal = bool(matched.get("off_removal"))
-    duration_min = PolicyEngine.calculate_duration(service_code or "GEL_NAIL", off_removal)
+    duration_min = PolicyEngine.calculate_duration(
+        service_code or "GEL_NAIL", off_removal, service_durations=shop_info.get("service_durations")
+    )
 
     schedule = backend_client.get_schedule(new_reserve_date)
     if not schedule.get("success", True):
@@ -755,8 +761,6 @@ def change_node(state: ReservationState):
     matched_reserve_time = str(matched.get("reserve_time", ""))
     booked_slots = [slot for slot in schedule["booked_slots"] if str(slot.get("reserve_time", "")) != matched_reserve_time]
 
-    # 휴무일은 예약 생성과 같은 기준(샵 정보)으로 판단한다. 조회에 실패하면 기본값(월요일)
-    shop_info = backend_client.get_shop_info()
     validation = PolicyEngine.validate_reservation(
         new_reserve_date,
         new_reserve_time,

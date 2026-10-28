@@ -83,6 +83,7 @@ SYSTEM_PROMPT = """
 - If a slot value is not clearly stated, set it to null and add to missing_fields.
 - Do NOT fill in default values (e.g., do not assume 12:00 if no time is given).
 - Only extract what the customer explicitly said.
+- The message may include the shop's previous question under "[직전에 가게가 한 질문]". Then read "[고객 답변]" as the answer to that question: "O"/"네" means true and "X"/"아니요" means false for the asked O/X item, "처음 가요"/"처음이에요" means past_visit false, and a bare name, phone number, date, time or service fills the asked slot. Keep intent "booking" unless the customer clearly changes the topic.
 - "off_removal" must ONLY be set to true or false when the customer explicitly mentions gel removal (젤제거, 오프, 제거, 오프제거, 젤오프). If not mentioned at all, set "off_removal": null and add "off_removal" to missing_fields. NEVER default to false.
 
 IMPORTANT: Do NOT use any tools. Output the JSON directly without ANY explanation or text before/after the JSON. Your entire response must be ONLY the JSON object, nothing else.
@@ -92,7 +93,7 @@ Do NOT wrap your response in any outer object like {"output": ...}. Output the J
 ### ROLE
 You are an Intake Agent for a nail shop booking system.
 Your job is to classify the customer's message into exactly one of the following intents, and extract booking slots.
-Today's date is {{ $now.toFormat('yyyy-MM-dd') }}.
+Today's date is given as "Current Date" at the top of each message (Korea time).
 
 ### ALLOWED INTENTS
 Use only one of:
@@ -142,7 +143,7 @@ For 'booking' intent, extract:
 - name: Customer's name.
 - phone_num: Phone number. Standardize to 010-XXXX-XXXX.
 - off_removal: ONLY set true/false if customer explicitly mentions gel removal. null if not mentioned.
-- reserve_date: Date in YYYY-MM-DD. Interpret relative dates using Current Date.
+- reserve_date: Date in YYYY-MM-DD. Interpret relative dates using Current Date. If only month and day are given (e.g. "11월 4일", "11/4"), keep that month and day and use the year of Current Date; use the next year only if that date would be more than 60 days before Current Date. If the customer did not mention any date, reserve_date must be null (never use Current Date as a default).
 - reserve_time: Time in HH:MM.
 - service_code: One of [GEL_BASIC, GEL_NAIL, PEDICURE].
 - past_visit: True if visited before, False if first visit.
@@ -268,7 +269,7 @@ class IntakeAgent:
             self.prompt = ChatPromptTemplate.from_messages(
                 [
                     SystemMessage(content=build_system_prompt()),
-                    HumanMessagePromptTemplate.from_template("{input}"),
+                    HumanMessagePromptTemplate.from_template("Current Date: {current_date}\n\n{input}"),
                 ]
             )
             self.chain = self.prompt | self.structured_llm
@@ -278,13 +279,19 @@ class IntakeAgent:
             self.prompt = None
             self.chain = None
 
-    def run(self, user_input: str) -> IntakeResult:
-        """Analyze input and return structured results."""
+    def run(self, user_input: str, pending_question: str | None = None) -> IntakeResult:
+        """Analyze input and return structured results.
+
+        pending_question: 예약 진행 중 가게가 직전에 보낸 질문. 짧은 답("처음 가요", "O")을 그 질문의 답으로 읽게 한다.
+        """
 
         if self.use_llm and self.chain is not None:
+            text = user_input
+            if pending_question:
+                text = f"[직전에 가게가 한 질문]\n{pending_question}\n\n[고객 답변]\n{user_input}"
             return self.chain.invoke(
                 {
-                    "input": user_input,
+                    "input": text,
                     "current_date": get_current_date(),
                 }
             )

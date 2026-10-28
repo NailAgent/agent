@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
@@ -16,6 +17,17 @@ class PolicyEngine:
         "GEL_NAIL": 60,
         "PEDICURE": 60,
         "REMOVAL_ADDON": 30,
+    }
+    # 백엔드 service_durations에 쓰이는 시술명 (공백 제거 후 비교)
+    SERVICE_NAME_CODES = {
+        "젤네일": "GEL_NAIL",
+        "기본네일": "GEL_BASIC",
+        "기본케어": "GEL_BASIC",
+        "손톱케어": "GEL_BASIC",
+        "페디큐어": "PEDICURE",
+        "젤제거": "REMOVAL_ADDON",
+        "기존젤네일제거": "REMOVAL_ADDON",
+        "제거": "REMOVAL_ADDON",
     }
 
     @classmethod
@@ -41,23 +53,24 @@ class PolicyEngine:
 
     @classmethod
     def _parse_service_durations(cls, service_durations) -> dict[str, int]:
-        """shop_info의 service_durations 문자열을 파싱. 실패 시 하드코딩 값 사용.
-        기대 형식 예시: "GEL_BASIC:30,GEL_NAIL:60,PEDICURE:60,REMOVAL_ADDON:30"
+        """shop_info의 service_durations 문자열을 파싱. 읽지 못한 항목은 하드코딩 값을 쓴다.
+
+        두 형식을 읽는다.
+        - 백엔드(data.sql) 형식: "젤네일 60분 / 기본네일 45분 / 페디큐어 60분"
+        - 코드 형식: "GEL_BASIC:30,GEL_NAIL:60,PEDICURE:60,REMOVAL_ADDON:30"
         """
         if not service_durations or not isinstance(service_durations, str):
             return cls.SERVICE_DURATIONS
-        try:
-            parsed = {}
-            for item in service_durations.split(","):
-                if ":" in item:
-                    key, val = item.strip().split(":", 1)
-                    parsed[key.strip()] = int(val.strip())
-            if parsed:
-                parsed.setdefault("REMOVAL_ADDON", cls.SERVICE_DURATIONS["REMOVAL_ADDON"])
-                return parsed
-        except (ValueError, AttributeError):
-            pass
-        return cls.SERVICE_DURATIONS
+        parsed = {}
+        for item in re.split(r"[/,]", service_durations):
+            match = re.match(r"\s*([^\d:]+?)\s*:?\s*(\d+)\s*분?\s*$", item)
+            if not match:
+                continue
+            name, minutes = match.group(1).strip(), int(match.group(2))
+            code = name if name in cls.SERVICE_DURATIONS else cls.SERVICE_NAME_CODES.get(name.replace(" ", ""))
+            if code:
+                parsed[code] = minutes
+        return {**cls.SERVICE_DURATIONS, **parsed} if parsed else cls.SERVICE_DURATIONS
 
     @classmethod
     def calculate_duration(cls, service_code: str, needs_removal: bool, service_durations=None) -> int:
